@@ -27,24 +27,29 @@ Abra `http://127.0.0.1:8000` no navegador. A própria API serve a interface.
 | Persistência (SQLAlchemy/SQLite→Postgres) | `app/db.py`, `app/repository.py` | ✅ funcional |
 | Exception Queue com aprovação/rejeição | `app/api.py` | ✅ funcional |
 | Readiness Gate (bloqueia script com BLOCKER pendente) | `app/api.py` | ✅ funcional |
-| **Gerador de script Oracle (Winthor Adapter)** | `app/winthor/oracle_generator.py` | ⚠️ obsoleto — ver pendência abaixo |
+| **Dois formatos de exportação: texto oficial + SQL** | `app/winthor/text_file_generator.py`, `app/winthor/oracle_generator.py` | ✅ funcional |
 | **Wizard de aderência por segmento/subsegmento** | `app/winthor/adherence.py`, `mappings/winthor/segments.json` | ✅ funcional (config + API + UI) |
 | **Derivação fiscal automática (PIS/COFINS por NCM)** | `app/winthor/pis_cofins_monofasico.py` | ⚠️ amostra ilustrativa, não valida fiscalmente |
 | SPED/XML Fiscal Evidence Layer | — | ❌ não implementado |
 | IA (classificação/sugestão) | — | ❌ não implementado (pontos de extensão isolados) |
 
-## ⚠️ Mudança de arquitetura — Winthor NÃO usa INSERT SQL
+## Dois formatos de saída, por decisão deliberada
 
-O layout oficial (`DD_WINTHOR.md`, documento DA.RPI.010) confirma que a carga no
-Winthor é feita por **arquivo texto delimitado** (`#` ou `;`, validado pelo programa
-`VALIDADORMIGRACAO`) — não por script de INSERT direto no Oracle.
+`GET /imports/{id}/script?format=texto|sql` — os dois convivem, não é migração
+de um pro outro:
 
-**`app/winthor/oracle_generator.py` está obsoleto** e precisa ser substituído por um
-gerador de arquivo texto posicional, respeitando: sem zero à esquerda em campo
-numérico, sem padding de espaço, decimal com ponto, data `DD/MM/YYYY`, campo
-obrigatório nunca em branco mas também nunca substituído por espaço (só o
-separador). Ainda não implementado — depende de fechar o mapeamento completo
-dos ~40 campos do PCPRODUT primeiro (ver wizard de aderência abaixo).
+- **`texto` (default)** — o formato que o documento DA.RPI.010 realmente descreve:
+  campos separados por `#` (ou `;`), separador também no fim da linha, sem
+  padding de espaço, sem zero à esquerda, datas `DD/MM/YYYY`. É o que o
+  `VALIDADORMIGRACAO` do Winthor espera. Layout completo (40 campos, ordem
+  exata) em `mappings/winthor/pcprodut_layout.json`.
+- **`sql`** — INSERT Oracle, mantido como alternativa para cenários onde o
+  time prefere carregar direto via banco. **Mapping ainda placeholder**
+  (`mappings/winthor/produto.json`) — não usar em produção sem validar
+  tabela/colunas reais primeiro.
+
+Os dois puxam do mesmo `ProductRecord` persistido — não há duplicação de lógica
+de negócio, só formatação de saída diferente.
 
 ## Wizard de aderência — por que existe
 
@@ -84,13 +89,12 @@ dados do cliente nunca teve a intenção de fornecer.
 5. O `.sql` gerado é rodado manualmente no Oracle do cliente (fora desta aplicação —
    não há execução automática contra banco de produção, por design).
 
-## ⚠️ Pendência crítica: mapping Winthor é placeholder E formato de saída está errado
+## ⚠️ Pendência: mapping do formato SQL ainda é placeholder
 
-`mappings/winthor/produto.json` (usado pelo `oracle_generator.py` obsoleto) tem
-nomes de tabela/coluna que eram um chute. O layout oficial confirmou o schema
-real de `PCPRODUT` (`mappings/winthor/pcprodut_modules.json` já reflete os campos
-corretos, agrupados em módulos de aderência). Mas o formato de saída também
-mudou: não é mais INSERT SQL, é arquivo texto delimitado. Ver seção acima.
+`mappings/winthor/produto.json` (usado só pelo `format=sql`) tem nomes de
+tabela/coluna que eram um chute — ainda não confirmados. O `format=texto`
+já usa o layout oficial confirmado (`pcprodut_layout.json`) e é o caminho
+recomendado até validar o mapping SQL.
 
 ## API
 

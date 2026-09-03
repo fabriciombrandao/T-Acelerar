@@ -28,6 +28,7 @@ from app.repository import persist_pipeline_result
 from app.winthor.adherence import (load_modules_config, load_segments_config,
                                     preset_for_subsegment)
 from app.winthor.oracle_generator import generate_insert_script
+from app.winthor.text_file_generator import generate_text_file
 
 STATIC_DIR = Path(__file__).resolve().parents[2] / "frontend"
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "output" / "scripts"
@@ -282,8 +283,20 @@ def readiness_gate(batch_id: str, db: Session = Depends(get_db)):
 # ---------- Geração de script Oracle ----------
 
 @app.get("/imports/{batch_id}/script")
-def generate_script(batch_id: str, db: Session = Depends(get_db)):
-    """Gera o .sql de INSERT para o Oracle do Winthor. Bloqueia se houver BLOCKER pendente."""
+def generate_script(batch_id: str, format: str = "texto", db: Session = Depends(get_db)):
+    """Gera o arquivo de carga para o Winthor.
+
+    format=texto (default) -> arquivo delimitado oficial (DA.RPI.010), o que
+        o Winthor realmente importa via VALIDADORMIGRACAO.
+    format=sql -> INSERT Oracle (mantido como segunda opção; útil quando o
+        time prefere carregar direto via banco em vez do fluxo oficial de
+        arquivo texto — cenário e mapping ainda precisam de validação
+        específica por cliente antes de usar em produção).
+    Bloqueia com 409 se houver exceção BLOCKER pendente, nos dois formatos.
+    """
+    if format not in ("texto", "sql"):
+        raise HTTPException(400, "format deve ser 'texto' ou 'sql'.")
+
     batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
     if not batch:
         raise HTTPException(404, "Lote não encontrado.")
@@ -301,7 +314,6 @@ def generate_script(batch_id: str, db: Session = Depends(get_db)):
             "Resolva na Exception Queue antes de gerar o script.",
         )
 
-    # Registros com qualquer exceção REJECTED ficam de fora do script (decisão do consultor).
     rejected_ids = {
         e.record_id for e in db.query(ExceptionRow).filter(
             ExceptionRow.batch_id == batch_id, ExceptionRow.resolution_status == "REJECTED",
@@ -309,30 +321,48 @@ def generate_script(batch_id: str, db: Session = Depends(get_db)):
     }
 
     products = db.query(ProductRecord).filter(ProductRecord.batch_id == batch_id).all()
-    product_dicts = [
-        {
-            "external_id": p.external_id, "sku": p.sku, "description": p.description,
-            "barcode": p.barcode, "ncm": p.ncm, "cest": p.cest, "unit": p.unit,
-            "brand": p.brand, "family": p.family, "department": p.department,
-            "weight": p.weight,
-        }
-        for p in products
-    ]
 
-    result = generate_insert_script(product_dicts, blocked_record_ids=rejected_ids,
-                                     batch_id=batch_id)
+    if format == "sql":
+        product_dicts = [
+            {
+                "external_id": p.external_id, "sku": p.sku, "description": p.description,
+                "barcode": p.barcode, "ncm": p.ncm, "cest": p.cest, "unit": p.unit,
+                "brand": p.brand, "family": p.family, "department": p.department,
+                "weight": p.weight,
+            }
+            for p in products
+        ]
+        result = generate_insert_script(product_dicts, blocked_record_ids=rejected_ids,
+                                         batch_id=batch_id)
+        content = result.sql
+        media_type = "application/sql"
+        filename = f"winthor_carga_{batch_id[:8]}.sql"
+    else:
+        product_dicts = [
+            {
+                "external_id": p.external_id, "sku": p.sku, "description": p.description,
+                "unit": p.unit, "barcode": p.barcode, "ncm": p.ncm, "weight": p.weight,
+                "extra": p.extra or {},
+            }
+            for p in products
+        ]
+        result = generate_text_file(product_dicts, blocked_record_ids=rejected_ids)
+        content = result.content
+        media_type = "text/plain"
+        filename = f"winthor_carga_{batch_id[:8]}.txt"
 
-    script_path = SCRIPTS_DIR / f"{batch_id}.sql"
-    script_path.write_text(result.sql, encoding="utf-8")
+    script_path = SCRIPTS_DIR / f"{batch_id}_{format}.{'sql' if format == 'sql' else 'txt'}"
+    script_path.write_text(content, encoding="utf-8")
 
     return PlainTextResponse(
-        content=result.sql,
-        media_type="application/sql",
+        content=content,
+        media_type=media_type,
         headers={
-            "Content-Disposition": f'attachment; filename="winthor_carga_{batch_id[:8]}.sql"',
+            "Content-Disposition": f'attachment; filename="{filename}"',
             "X-Records-Included": str(result.records_included),
             "X-Records-Skipped": str(len(result.records_skipped)),
             "X-Warnings-Count": str(len(result.warnings)),
+            "X-Format": format,
         },
     )
 

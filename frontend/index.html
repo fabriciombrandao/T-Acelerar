@@ -396,10 +396,16 @@ function renderProjectView(name) {
       <div id="exceptions-list"></div>
     </section>
     <section id="script-section" style="display:none;">
-      <h2>Script de carga (Oracle)</h2>
+      <h2>Script de carga</h2>
       <div class="script-panel">
         <div class="note" id="script-note"></div>
-        <button class="primary" id="generate-script-btn">Gerar script .sql</button>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <select id="format-select">
+            <option value="texto">Arquivo texto (oficial Winthor)</option>
+            <option value="sql">INSERT Oracle (alternativo)</option>
+          </select>
+          <button class="primary" id="generate-script-btn">Gerar</button>
+        </div>
       </div>
     </section>
   `;
@@ -670,8 +676,9 @@ async function resolveException(id, decision) {
 }
 
 async function generateScript() {
+  const format = document.getElementById("format-select").value;
   try {
-    const resp = await fetch(`${API}/imports/${currentBatch}/script`);
+    const resp = await fetch(`${API}/imports/${currentBatch}/script?format=${format}`);
     if (!resp.ok) {
       const text = await resp.text();
       toast("Bloqueado: " + text);
@@ -680,13 +687,14 @@ async function generateScript() {
     const blob = await resp.blob();
     const included = resp.headers.get("X-Records-Included");
     const skipped = resp.headers.get("X-Records-Skipped");
+    const ext = format === "sql" ? "sql" : "txt";
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `winthor_carga_${currentBatch.slice(0, 8)}.sql`;
+    a.download = `winthor_carga_${currentBatch.slice(0, 8)}.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
-    toast(`Script gerado: ${included} registros incluídos, ${skipped} ignorados.`);
+    toast(`Script gerado (${format}): ${included} registros incluídos, ${skipped} ignorados.`);
   } catch (err) {
     toast("Erro ao gerar script: " + err.message);
   }

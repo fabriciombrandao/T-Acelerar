@@ -130,7 +130,7 @@ def test_generate_script_blocked_while_pending_blocker(client):
     assert resp.status_code == 409
 
 
-def test_generate_script_succeeds_after_resolving_blockers(client):
+def test_generate_script_defaults_to_texto_format(client):
     project_id = _create_project(client)
     batch = _upload_sample(client, project_id).json()
     batch_id = batch["id"]
@@ -147,9 +147,37 @@ def test_generate_script_succeeds_after_resolving_blockers(client):
 
     resp = client.get(f"/imports/{batch_id}/script")
     assert resp.status_code == 200
+    assert resp.headers["X-Format"] == "texto"
+    assert resp.headers["content-type"].startswith("text/plain")
+
+
+def test_generate_script_sql_format_still_available(client):
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+    batch_id = batch["id"]
+
+    blockers = client.get(
+        "/exceptions", params={"batch_id": batch_id, "status": "PENDING"}
+    ).json()
+    for e in blockers:
+        if e["severity"] == "BLOCKER":
+            client.post(
+                f"/exceptions/{e['id']}/resolve",
+                json={"decision": "APPROVED", "resolved_by": "consultor.teste"},
+            )
+
+    resp = client.get(f"/imports/{batch_id}/script", params={"format": "sql"})
+    assert resp.status_code == 200
     assert "INSERT INTO PCPRODUT" in resp.text
     assert resp.text.strip().endswith("COMMIT;")
     assert int(resp.headers["X-Records-Included"]) > 0
+
+
+def test_generate_script_invalid_format_returns_400(client):
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+    resp = client.get(f"/imports/{batch['id']}/script", params={"format": "xml"})
+    assert resp.status_code == 400
 
 
 def test_generate_script_excludes_rejected_records(client):
@@ -171,7 +199,7 @@ def test_generate_script_excludes_rejected_records(client):
             json={"decision": decision, "resolved_by": "consultor.teste"},
         )
 
-    resp = client.get(f"/imports/{batch_id}/script")
+    resp = client.get(f"/imports/{batch_id}/script", params={"format": "sql"})
     assert resp.status_code == 200
     assert int(resp.headers["X-Records-Skipped"]) >= 1
     assert f"'{blocker_record_id}'" not in resp.text
