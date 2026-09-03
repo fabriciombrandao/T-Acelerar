@@ -1,22 +1,45 @@
 version: "3.9"
 
-# Perfil "compartilhado" (>1 consultor): Postgres é obrigatório, não opcional.
-# SQLite trava com escrita concorrente de vários consultores ao mesmo tempo.
+# Perfil "compartilhado" (>1 consultor, volume grande): Postgres obrigatório
+# (não SQLite), Redis + worker Celery obrigatórios (não processamento
+# síncrono na requisição). Ver docs/FRONTEND_GUIDELINES.md e README.md
+# para o racional dessas decisões.
 
 services:
   app:
     build: .
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "${APP_PORT:-8000}:8000"
     environment:
       WINTHOR_DB_URL: postgresql+psycopg2://winthor:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}@db:5432/winthor_data_deploy
       WINTHOR_JWT_SECRET: ${WINTHOR_JWT_SECRET:?defina WINTHOR_JWT_SECRET no .env}
       WINTHOR_BOOTSTRAP_SECRET: ${WINTHOR_BOOTSTRAP_SECRET:-}
+      WINTHOR_REDIS_URL: redis://redis:6379/0
     depends_on:
       - db
+      - redis
     volumes:
       - winthor_output:/app/output
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: celery -A app.tasks worker --loglevel=info --concurrency=4 --app-dir /app/backend
+    environment:
+      WINTHOR_DB_URL: postgresql+psycopg2://winthor:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}@db:5432/winthor_data_deploy
+      WINTHOR_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - winthor_output:/app/output
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - winthor_redis:/data
 
   db:
     image: postgres:16-alpine
@@ -30,4 +53,5 @@ services:
 
 volumes:
   winthor_postgres:
+  winthor_redis:
   winthor_output:
