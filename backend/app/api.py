@@ -13,14 +13,13 @@ from __future__ import annotations
 
 import os
 import shutil
-import tempfile
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, Form, HTTPException, Response, UploadFile
 from fastapi.responses import PlainTextResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
@@ -33,8 +32,8 @@ from app.auth import (Role, authenticate_user, can_see_owner, create_access_toke
                        visible_owner_ids)
 from app.db import (ExceptionRow, ImportBatch, Project, ProductRecord, User,
                      get_db, init_db)
-from app.pipeline import run_pipeline_csv
-from app.repository import persist_pipeline_result
+from app.repository import create_pending_batch
+from app.tasks import process_import_task
 from app.winthor.adherence import (load_modules_config, load_segments_config,
                                     preset_for_subsegment)
 from app.winthor.oracle_generator import generate_insert_script
@@ -42,12 +41,14 @@ from app.winthor.text_file_generator import generate_text_file
 
 STATIC_DIR = Path(__file__).resolve().parents[2] / "frontend"
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "output" / "scripts"
+UPLOADS_DIR = Path(__file__).resolve().parents[2] / "output" / "uploads"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     yield
 
 
@@ -145,6 +146,8 @@ class BatchSummary(BaseModel):
     id: str
     project_id: str
     source_file: str
+    status: str
+    error_message: Optional[str] = None
     total_records: int
     exception_count: int
     data_readiness_score: float
@@ -338,22 +341,33 @@ def get_project_adherence(project_id: str, db: Session = Depends(get_db),
 async def create_import(project_id: str = Form(...), file: UploadFile = None,
                          db: Session = Depends(get_db),
                          current_user: User = Depends(get_current_user)):
-    """Sobe um CSV de produtos dentro de um projeto, roda o pipeline e persiste."""
+    """Sobe um CSV de produtos dentro de um projeto e dispara o processamento.
+
+    Responde imediatamente com o lote em status PENDING (ou já DONE, se
+    estiver rodando sem Redis configurado — modo síncrono de dev/teste).
+    Use GET /imports/{id} para acompanhar o progresso em arquivo grande.
+    """
     _get_authorized_project(db, project_id, current_user)
     if not file or not file.filename.lower().endswith(".csv"):
         raise HTTPException(400, "Envie um arquivo .csv.")
 
-    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
-        shutil.copyfileobj(file.file, tmp)
-        tmp_path = Path(tmp.name)
+    batch = create_pending_batch(db, project_id=project_id, source_file=file.filename)
 
-    try:
-        result = run_pipeline_csv(tmp_path)
-        batch = persist_pipeline_result(db, result, source_file=file.filename,
-                                         project_id=project_id)
-    finally:
-        tmp_path.unlink(missing_ok=True)
+    persistent_path = UPLOADS_DIR / f"{batch.id}.csv"
+    with persistent_path.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
 
+    process_import_task.delay(batch.id, str(persistent_path))
+
+    db.refresh(batch)  # em modo síncrono (sem Redis), a task já rodou e commitou
+    return batch
+
+
+@app.get("/imports/{batch_id}", response_model=BatchSummary)
+def get_import_status(batch_id: str, db: Session = Depends(get_db),
+                       current_user: User = Depends(get_current_user)):
+    """Polling de status — use enquanto o lote estiver PENDING/PROCESSING."""
+    batch = _get_authorized_batch(db, batch_id, current_user)
     return batch
 
 
@@ -365,10 +379,20 @@ def get_report(batch_id: str, db: Session = Depends(get_db),
 
 
 @app.get("/imports/{batch_id}/products")
-def list_products(batch_id: str, db: Session = Depends(get_db),
+def list_products(batch_id: str, response: Response, limit: int = 200, offset: int = 0,
+                   db: Session = Depends(get_db),
                    current_user: User = Depends(get_current_user)):
+    """Paginado — batch de 1M linhas não pode virar um JSON só. Default 200,
+    máximo 1000 por página; total real vem no header X-Total-Count."""
+    limit = max(1, min(limit, 1000))
+    offset = max(0, offset)
+
     _get_authorized_batch(db, batch_id, current_user)
-    products = db.query(ProductRecord).filter(ProductRecord.batch_id == batch_id).all()
+    base_query = db.query(ProductRecord).filter(ProductRecord.batch_id == batch_id)
+    total = base_query.count()
+    products = base_query.order_by(ProductRecord.id).offset(offset).limit(limit).all()
+
+    response.headers["X-Total-Count"] = str(total)
     return [
         {
             "external_id": p.external_id, "sku": p.sku, "description": p.description,
@@ -381,9 +405,14 @@ def list_products(batch_id: str, db: Session = Depends(get_db),
 # ---------- Exception Queue ----------
 
 @app.get("/exceptions", response_model=list[ExceptionOut])
-def list_exceptions(batch_id: Optional[str] = None, status: Optional[str] = None,
+def list_exceptions(response: Response, batch_id: Optional[str] = None,
+                     status: Optional[str] = None, limit: int = 200, offset: int = 0,
                      db: Session = Depends(get_db),
                      current_user: User = Depends(get_current_user)):
+    """Paginado — mesma lógica: default 200, máximo 1000, total no header."""
+    limit = max(1, min(limit, 1000))
+    offset = max(0, offset)
+
     if batch_id:
         _get_authorized_batch(db, batch_id, current_user)
         query = db.query(ExceptionRow).filter(ExceptionRow.batch_id == batch_id)
@@ -398,7 +427,13 @@ def list_exceptions(batch_id: Optional[str] = None, status: Optional[str] = None
             )
     if status:
         query = query.filter(ExceptionRow.resolution_status == status)
-    return query.order_by(ExceptionRow.severity.desc()).all()
+
+    total = query.count()
+    response.headers["X-Total-Count"] = str(total)
+    return (
+        query.order_by(ExceptionRow.severity.desc(), ExceptionRow.id)
+        .offset(offset).limit(limit).all()
+    )
 
 
 @app.post("/exceptions/{exception_id}/resolve", response_model=ExceptionOut)

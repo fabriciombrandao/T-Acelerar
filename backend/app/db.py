@@ -44,7 +44,7 @@ class Project(Base):
 
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
-    owner_id = Column(String, ForeignKey("users.id"), nullable=True)
+    owner_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
     segment = Column(String, nullable=True)
     subsegment = Column(String, nullable=True)
     adherence_answers = Column(JSON, default=dict)  # {module_id: bool}
@@ -57,9 +57,11 @@ class ImportBatch(Base):
     __tablename__ = "import_batches"
 
     id = Column(String, primary_key=True)
-    project_id = Column(String, ForeignKey("projects.id"), nullable=False)
+    project_id = Column(String, ForeignKey("projects.id"), nullable=False, index=True)
     source_file = Column(String, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    status = Column(String, default="PENDING")  # PENDING | PROCESSING | DONE | FAILED
+    error_message = Column(String, nullable=True)
     total_records = Column(Integer, default=0)
     exception_count = Column(Integer, default=0)
     data_readiness_score = Column(Float, default=0.0)
@@ -74,10 +76,10 @@ class ProductRecord(Base):
     __tablename__ = "products"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    batch_id = Column(String, ForeignKey("import_batches.id"), nullable=False)
+    batch_id = Column(String, ForeignKey("import_batches.id"), nullable=False, index=True)
 
     external_id = Column(String, nullable=False)
-    sku = Column(String, nullable=False)
+    sku = Column(String, nullable=False, index=True)
     description_raw = Column(String)
     description = Column(String)
     barcode = Column(String)
@@ -100,7 +102,7 @@ class ExceptionRow(Base):
     __tablename__ = "exceptions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    batch_id = Column(String, ForeignKey("import_batches.id"), nullable=False)
+    batch_id = Column(String, ForeignKey("import_batches.id"), nullable=False, index=True)
 
     record_id = Column(String, nullable=False)
     entity = Column(String, nullable=False)
@@ -110,7 +112,7 @@ class ExceptionRow(Base):
     payload = Column(JSON, default=dict)
 
     # Exception Queue — workflow de decisão humana (princípio central do documento).
-    resolution_status = Column(String, default="PENDING")  # PENDING | APPROVED | REJECTED
+    resolution_status = Column(String, default="PENDING", index=True)  # PENDING | APPROVED | REJECTED
     resolved_by = Column(String, nullable=True)
     resolution_note = Column(String, nullable=True)
     resolved_at = Column(DateTime, nullable=True)

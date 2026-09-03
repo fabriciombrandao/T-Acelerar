@@ -76,6 +76,56 @@ def test_import_creates_batch_with_exceptions(client):
     assert data["exception_count"] > 0
 
 
+def test_import_batch_status_is_done_after_sync_processing(client):
+    """Sem Redis configurado (ambiente de teste), a task roda em modo eager —
+    o lote já deve estar DONE na resposta do POST, sem precisar dar poll."""
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+    assert batch["status"] == "DONE"
+    assert batch["error_message"] is None
+
+
+def test_get_import_status_endpoint_reflects_current_state(client):
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+
+    resp = client.get(f"/imports/{batch['id']}")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "DONE"
+    assert resp.json()["total_records"] == 7
+
+
+def test_import_batch_marked_failed_on_pipeline_error(client, monkeypatch):
+    """Se o pipeline lançar exceção durante o processamento, o lote deve
+    ficar FAILED com a mensagem de erro, não travar silenciosamente."""
+    import io
+
+    import app.pipeline as pipeline_module
+
+    def _boom(path):
+        raise ValueError("arquivo corrompido de propósito")
+
+    monkeypatch.setattr(pipeline_module, "run_pipeline_csv", _boom)
+
+    project_id = _create_project(client)
+    fake_csv = io.BytesIO(b"codigo,descricao\n1,teste\n")
+
+    # Modo eager propaga a exceção da task pra dentro da própria requisição.
+    with pytest.raises(Exception):
+        client.post(
+            "/imports", data={"project_id": project_id},
+            files={"file": ("bogus.csv", fake_csv, "text/csv")},
+        )
+
+    # O lote foi criado (PENDING) antes de disparar a task, então mesmo com
+    # a exceção o registro existe — e mark_batch_failed já commitou FAILED
+    # antes de a exceção subir.
+    batches = client.get(f"/projects/{project_id}/imports").json()
+    assert len(batches) == 1
+    assert batches[0]["status"] == "FAILED"
+    assert "arquivo corrompido" in (batches[0]["error_message"] or "")
+
+
 def test_list_project_imports(client):
     project_id = _create_project(client)
     _upload_sample(client, project_id)
