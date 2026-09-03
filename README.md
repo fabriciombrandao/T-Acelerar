@@ -47,39 +47,52 @@ a ser obrigatórios (não "melhoria futura"):
    padrão para este perfil (SQLite continua sendo o default só para
    desenvolvimento local sozinho).
 
-## Autenticação
+## Autenticação e hierarquia de acesso
 
-Modelo fechado, sem auto-cadastro — admin cria os consultores.
+Modelo fechado, sem auto-cadastro, com 3 papéis:
 
-**Primeiro setup (uma vez só, por ambiente):**
+| Papel | Cria usuários | Vê projetos de |
+|---|---|---|
+| **Diretor** | Qualquer papel (coordenador direto; analista precisa de `manager_email` apontando pra um coordenador) | Todos |
+| **Coordenador** | Só `analista`, automaticamente atribuído à própria equipe (`manager_id` = ele mesmo) | Ele mesmo + toda a equipe (analistas sob ele) |
+| **Analista** | Ninguém | Só ele mesmo |
+
+Analistas da mesma equipe **não** veem projeto uns dos outros — só o
+coordenador acima e o diretor enxergam a equipe inteira.
+
+**Primeiro setup (uma vez só, por ambiente) — cria o primeiro DIRETOR:**
 ```bash
 curl -X POST http://localhost:8000/auth/bootstrap-admin \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@empresa.com","name":"Admin","password":"...",
+  -d '{"email":"diretor@empresa.com","name":"Fulano","password":"...",
        "bootstrap_secret":"<WINTHOR_BOOTSTRAP_SECRET do .env>"}'
 ```
 Esse endpoint só funciona **uma vez** — depois que existe qualquer usuário no
 banco, ele sempre retorna 409, mesmo com o secret certo.
 
 **Depois disso**, login normal (`POST /auth/login`, form `username`+`password`,
-retorna JWT) e o admin cria os demais consultores:
+retorna JWT). O diretor cria coordenadores:
 ```bash
-curl -X POST http://localhost:8000/users \
-  -H "Authorization: Bearer <token-do-admin>" \
+curl -X POST http://localhost:8000/users -H "Authorization: Bearer <token-diretor>" \
   -H "Content-Type: application/json" \
-  -d '{"email":"consultor@empresa.com","name":"Fulano","password":"...","is_admin":false}'
+  -d '{"email":"coord@empresa.com","name":"Coordenador","password":"...","role":"coordenador"}'
+```
+E cada coordenador cria os próprios analistas (não precisa de `manager_email`
+— vira automaticamente a equipe de quem criou):
+```bash
+curl -X POST http://localhost:8000/users -H "Authorization: Bearer <token-coordenador>" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"analista@empresa.com","name":"Analista","password":"...","role":"analista"}'
 ```
 
 Token expira em 12h. Todo o resto da API exige `Authorization: Bearer <token>`.
 `resolved_by` na Exception Queue vem do usuário autenticado — não é mais
 texto livre enviado pelo cliente, é dado de auditoria de verdade.
 
-**Isolamento por projeto**: admin vê e mexe em todos os projetos. Consultor
-só vê/acessa projetos dos quais é `owner` — por padrão, quem cria o projeto
-vira owner; admin pode atribuir a outro consultor na criação
-(`owner_email` no `POST /projects`, campo ignorado/bloqueado com 403 se
-quem chama não for admin). Tentar acessar projeto/lote/exceção de outro
-dono retorna 403, tanto por rota direta quanto por listagem.
+**Atribuição de projeto**: por padrão, quem cria um projeto vira `owner`.
+`owner_email` no `POST /projects` permite atribuir a outra pessoa, mas só
+dentro do que você já enxergaria (diretor: qualquer um; coordenador: a
+própria equipe; analista: só ele mesmo — tentar atribuir a outro dá 403).
 
 ## Dois formatos de saída, por decisão deliberada
 

@@ -27,8 +27,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
-from app.auth import (authenticate_user, create_access_token, create_user,
-                       get_current_admin, get_current_user, hash_password)
+from app.auth import (Role, authenticate_user, can_see_owner, create_access_token,
+                       create_user, get_current_coordenador_ou_acima,
+                       get_current_diretor, get_current_user, hash_password,
+                       visible_owner_ids)
 from app.db import (ExceptionRow, ImportBatch, Project, ProductRecord, User,
                      get_db, init_db)
 from app.pipeline import run_pipeline_csv
@@ -66,7 +68,7 @@ def _get_authorized_project(db: Session, project_id: str, user: User) -> Project
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(404, "Projeto não encontrado.")
-    if not user.is_admin and project.owner_id != user.id:
+    if not can_see_owner(db, user, project.owner_id):
         raise HTTPException(403, "Sem acesso a este projeto.")
     return project
 
@@ -75,10 +77,9 @@ def _get_authorized_batch(db: Session, batch_id: str, user: User) -> ImportBatch
     batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
     if not batch:
         raise HTTPException(404, "Lote não encontrado.")
-    if not user.is_admin:
-        project = db.query(Project).filter(Project.id == batch.project_id).first()
-        if not project or project.owner_id != user.id:
-            raise HTTPException(403, "Sem acesso a este projeto.")
+    project = db.query(Project).filter(Project.id == batch.project_id).first()
+    if not project or not can_see_owner(db, user, project.owner_id):
+        raise HTTPException(403, "Sem acesso a este projeto.")
     return batch
 
 
@@ -93,7 +94,8 @@ class UserOut(BaseModel):
     id: str
     email: str
     name: str
-    is_admin: bool
+    role: str
+    manager_id: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -101,7 +103,8 @@ class UserCreateIn(BaseModel):
     email: str
     name: str
     password: str
-    is_admin: bool = False
+    role: str  # "diretor" | "coordenador" | "analista"
+    manager_email: Optional[str] = None  # obrigatório se role="analista" e quem cria for diretor
 
 
 class BootstrapAdminIn(BaseModel):
@@ -186,8 +189,8 @@ def get_me(current_user: User = Depends(get_current_user)):
 
 @app.post("/auth/bootstrap-admin", response_model=UserOut)
 def bootstrap_admin(payload: BootstrapAdminIn, db: Session = Depends(get_db)):
-    """Cria o primeiro admin. Só funciona uma vez (enquanto não houver nenhum
-    usuário) e exige o secret de ambiente WINTHOR_BOOTSTRAP_SECRET."""
+    """Cria o primeiro DIRETOR. Só funciona uma vez (enquanto não houver
+    nenhum usuário) e exige o secret de ambiente WINTHOR_BOOTSTRAP_SECRET."""
     expected_secret = os.environ.get("WINTHOR_BOOTSTRAP_SECRET")
     if not expected_secret:
         raise HTTPException(503, "WINTHOR_BOOTSTRAP_SECRET não configurado no servidor.")
@@ -196,22 +199,46 @@ def bootstrap_admin(payload: BootstrapAdminIn, db: Session = Depends(get_db)):
     if db.query(User).count() > 0:
         raise HTTPException(409, "Já existe usuário cadastrado. Bootstrap só funciona uma vez.")
 
-    return create_user(db, payload.email, payload.name, payload.password, is_admin=True)
+    return create_user(db, payload.email, payload.name, payload.password, role=Role.DIRETOR.value)
 
 
-# ---------- Usuários (admin) ----------
+# ---------- Usuários (diretor gerencia todos; coordenador só sua equipe) ----------
 
 @app.post("/users", response_model=UserOut)
 def create_user_endpoint(payload: UserCreateIn, db: Session = Depends(get_db),
-                          _admin: User = Depends(get_current_admin)):
+                          current_user: User = Depends(get_current_coordenador_ou_acima)):
+    if payload.role not in {r.value for r in Role}:
+        raise HTTPException(400, f"role deve ser um de: {[r.value for r in Role]}.")
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(409, "Já existe usuário com esse email.")
-    return create_user(db, payload.email, payload.name, payload.password, payload.is_admin)
+
+    if current_user.role == Role.COORDENADOR:
+        if payload.role != Role.ANALISTA.value:
+            raise HTTPException(403, "Coordenador só pode criar usuários com perfil analista.")
+        manager_id = current_user.id  # equipe do próprio coordenador, sem exceção
+    else:  # diretor
+        manager_id = None
+        if payload.role == Role.ANALISTA.value:
+            if not payload.manager_email:
+                raise HTTPException(400, "manager_email é obrigatório para criar um analista.")
+            manager = db.query(User).filter(User.email == payload.manager_email).first()
+            if not manager or manager.role != Role.COORDENADOR.value:
+                raise HTTPException(400, "manager_email deve ser um coordenador existente.")
+            manager_id = manager.id
+
+    return create_user(db, payload.email, payload.name, payload.password,
+                        role=payload.role, manager_id=manager_id)
 
 
 @app.get("/users", response_model=list[UserOut])
-def list_users(db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
-    return db.query(User).order_by(User.created_at.desc()).all()
+def list_users(db: Session = Depends(get_db),
+               current_user: User = Depends(get_current_coordenador_ou_acima)):
+    if current_user.role == Role.DIRETOR:
+        query = db.query(User)
+    else:  # coordenador: só a própria equipe + ele mesmo
+        ids = visible_owner_ids(db, current_user)
+        query = db.query(User).filter(User.id.in_(ids))
+    return query.order_by(User.created_at.desc()).all()
 
 
 # ---------- Projetos ----------
@@ -222,11 +249,15 @@ def create_project(payload: ProjectIn, db: Session = Depends(get_db),
     owner_id = current_user.id
 
     if payload.owner_email:
-        if not current_user.is_admin:
-            raise HTTPException(403, "Só admin pode atribuir projeto a outro consultor.")
         target = db.query(User).filter(User.email == payload.owner_email).first()
         if not target:
             raise HTTPException(404, f"Usuário '{payload.owner_email}' não encontrado.")
+        # Só pode atribuir a alguém cujos projetos você já enxergaria de qualquer
+        # forma: diretor -> qualquer um; coordenador -> a própria equipe; analista -> só ele mesmo.
+        if not can_see_owner(db, current_user, target.id):
+            raise HTTPException(
+                403, "Sem permissão para atribuir projeto a este usuário.",
+            )
         owner_id = target.id
 
     project = Project(id=str(uuid.uuid4()), name=payload.name, owner_id=owner_id)
@@ -239,8 +270,9 @@ def create_project(payload: ProjectIn, db: Session = Depends(get_db),
 @app.get("/projects", response_model=list[ProjectOut])
 def list_projects(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     query = db.query(Project)
-    if not current_user.is_admin:
-        query = query.filter(Project.owner_id == current_user.id)
+    ids = visible_owner_ids(db, current_user)
+    if ids is not None:
+        query = query.filter(Project.owner_id.in_(ids))
     return query.order_by(Project.created_at.desc()).all()
 
 
@@ -357,11 +389,12 @@ def list_exceptions(batch_id: Optional[str] = None, status: Optional[str] = None
         query = db.query(ExceptionRow).filter(ExceptionRow.batch_id == batch_id)
     else:
         query = db.query(ExceptionRow)
-        if not current_user.is_admin:
+        ids = visible_owner_ids(db, current_user)
+        if ids is not None:
             query = (
                 query.join(ImportBatch, ExceptionRow.batch_id == ImportBatch.id)
                 .join(Project, ImportBatch.project_id == Project.id)
-                .filter(Project.owner_id == current_user.id)
+                .filter(Project.owner_id.in_(ids))
             )
     if status:
         query = query.filter(ExceptionRow.resolution_status == status)

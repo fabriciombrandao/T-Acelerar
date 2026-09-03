@@ -409,7 +409,7 @@ async function showAppShell() {
   document.getElementById("app-shell").style.display = "grid";
   try {
     const me = await (await api("/auth/me")).json();
-    document.getElementById("user-subtitle").textContent = `${me.name}${me.is_admin ? " · admin" : ""}`;
+    document.getElementById("user-subtitle").textContent = `${me.name} · ${me.role}`;
   } catch (e) { /* já tratado por api() se der 401 */ }
   loadProjects();
 }

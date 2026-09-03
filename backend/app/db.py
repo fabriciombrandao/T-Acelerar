@@ -33,7 +33,8 @@ class User(Base):
     email = Column(String, nullable=False, unique=True, index=True)
     name = Column(String, nullable=False)
     password_hash = Column(String, nullable=False)
-    is_admin = Column(Boolean, default=False)
+    role = Column(String, nullable=False, default="analista")  # diretor | coordenador | analista
+    manager_id = Column(String, ForeignKey("users.id"), nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
