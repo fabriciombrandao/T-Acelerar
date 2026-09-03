@@ -52,9 +52,34 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Winthor Data Deploy API",
     description="Ingestão, saneamento, auditoria, Exception Queue e geração de script Winthor.",
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
+
+
+# ---------- Autorização por projeto ----------
+# Admin vê/mexe em tudo. Consultor só acessa projetos dos quais é owner
+# (decisão do time: >5 consultores, projetos de clientes diferentes —
+# consultor de um cliente não deve ver dado de outro).
+
+def _get_authorized_project(db: Session, project_id: str, user: User) -> Project:
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(404, "Projeto não encontrado.")
+    if not user.is_admin and project.owner_id != user.id:
+        raise HTTPException(403, "Sem acesso a este projeto.")
+    return project
+
+
+def _get_authorized_batch(db: Session, batch_id: str, user: User) -> ImportBatch:
+    batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(404, "Lote não encontrado.")
+    if not user.is_admin:
+        project = db.query(Project).filter(Project.id == batch.project_id).first()
+        if not project or project.owner_id != user.id:
+            raise HTTPException(403, "Sem acesso a este projeto.")
+    return batch
 
 
 # ---------- Schemas ----------
@@ -89,6 +114,7 @@ class BootstrapAdminIn(BaseModel):
 class ProjectOut(BaseModel):
     id: str
     name: str
+    owner_id: Optional[str] = None
     segment: Optional[str] = None
     subsegment: Optional[str] = None
     adherence_answers: dict = {}
@@ -97,6 +123,7 @@ class ProjectOut(BaseModel):
 
 class ProjectIn(BaseModel):
     name: str
+    owner_email: Optional[str] = None  # só admin pode atribuir a outro consultor
 
 
 class AdherenceIn(BaseModel):
@@ -191,8 +218,18 @@ def list_users(db: Session = Depends(get_db), _admin: User = Depends(get_current
 
 @app.post("/projects", response_model=ProjectOut)
 def create_project(payload: ProjectIn, db: Session = Depends(get_db),
-                    _user: User = Depends(get_current_user)):
-    project = Project(id=str(uuid.uuid4()), name=payload.name)
+                    current_user: User = Depends(get_current_user)):
+    owner_id = current_user.id
+
+    if payload.owner_email:
+        if not current_user.is_admin:
+            raise HTTPException(403, "Só admin pode atribuir projeto a outro consultor.")
+        target = db.query(User).filter(User.email == payload.owner_email).first()
+        if not target:
+            raise HTTPException(404, f"Usuário '{payload.owner_email}' não encontrado.")
+        owner_id = target.id
+
+    project = Project(id=str(uuid.uuid4()), name=payload.name, owner_id=owner_id)
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -200,13 +237,17 @@ def create_project(payload: ProjectIn, db: Session = Depends(get_db),
 
 
 @app.get("/projects", response_model=list[ProjectOut])
-def list_projects(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    return db.query(Project).order_by(Project.created_at.desc()).all()
+def list_projects(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    query = db.query(Project)
+    if not current_user.is_admin:
+        query = query.filter(Project.owner_id == current_user.id)
+    return query.order_by(Project.created_at.desc()).all()
 
 
 @app.get("/projects/{project_id}/imports", response_model=list[BatchSummary])
 def list_project_imports(project_id: str, db: Session = Depends(get_db),
-                          _user: User = Depends(get_current_user)):
+                          current_user: User = Depends(get_current_user)):
+    _get_authorized_project(db, project_id, current_user)
     return (
         db.query(ImportBatch)
         .filter(ImportBatch.project_id == project_id)
@@ -231,11 +272,9 @@ def get_modules(_user: User = Depends(get_current_user)):
 
 @app.post("/projects/{project_id}/adherence", response_model=AdherenceOut)
 def set_project_adherence(project_id: str, payload: AdherenceIn, db: Session = Depends(get_db),
-                           _user: User = Depends(get_current_user)):
+                           current_user: User = Depends(get_current_user)):
     """Salva segmento/subsegmento escolhidos + aplica preset, com overrides opcionais."""
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(404, "Projeto não encontrado.")
+    project = _get_authorized_project(db, project_id, current_user)
 
     preset = preset_for_subsegment(payload.segment, payload.subsegment)
     if not preset and payload.overrides is None:
@@ -255,10 +294,8 @@ def set_project_adherence(project_id: str, payload: AdherenceIn, db: Session = D
 
 @app.get("/projects/{project_id}/adherence", response_model=AdherenceOut)
 def get_project_adherence(project_id: str, db: Session = Depends(get_db),
-                           _user: User = Depends(get_current_user)):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(404, "Projeto não encontrado.")
+                           current_user: User = Depends(get_current_user)):
+    project = _get_authorized_project(db, project_id, current_user)
     return AdherenceOut(segment=project.segment, subsegment=project.subsegment,
                          adherence_answers=project.adherence_answers or {})
 
@@ -268,10 +305,9 @@ def get_project_adherence(project_id: str, db: Session = Depends(get_db),
 @app.post("/imports", response_model=BatchSummary)
 async def create_import(project_id: str = Form(...), file: UploadFile = None,
                          db: Session = Depends(get_db),
-                         _user: User = Depends(get_current_user)):
+                         current_user: User = Depends(get_current_user)):
     """Sobe um CSV de produtos dentro de um projeto, roda o pipeline e persiste."""
-    if not db.query(Project).filter(Project.id == project_id).first():
-        raise HTTPException(404, "Projeto não encontrado.")
+    _get_authorized_project(db, project_id, current_user)
     if not file or not file.filename.lower().endswith(".csv"):
         raise HTTPException(400, "Envie um arquivo .csv.")
 
@@ -291,16 +327,15 @@ async def create_import(project_id: str = Form(...), file: UploadFile = None,
 
 @app.get("/imports/{batch_id}/report")
 def get_report(batch_id: str, db: Session = Depends(get_db),
-                _user: User = Depends(get_current_user)):
-    batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
-    if not batch:
-        raise HTTPException(404, "Lote não encontrado.")
+                current_user: User = Depends(get_current_user)):
+    batch = _get_authorized_batch(db, batch_id, current_user)
     return batch.report
 
 
 @app.get("/imports/{batch_id}/products")
 def list_products(batch_id: str, db: Session = Depends(get_db),
-                   _user: User = Depends(get_current_user)):
+                   current_user: User = Depends(get_current_user)):
+    _get_authorized_batch(db, batch_id, current_user)
     products = db.query(ProductRecord).filter(ProductRecord.batch_id == batch_id).all()
     return [
         {
@@ -316,10 +351,18 @@ def list_products(batch_id: str, db: Session = Depends(get_db),
 @app.get("/exceptions", response_model=list[ExceptionOut])
 def list_exceptions(batch_id: Optional[str] = None, status: Optional[str] = None,
                      db: Session = Depends(get_db),
-                     _user: User = Depends(get_current_user)):
-    query = db.query(ExceptionRow)
+                     current_user: User = Depends(get_current_user)):
     if batch_id:
-        query = query.filter(ExceptionRow.batch_id == batch_id)
+        _get_authorized_batch(db, batch_id, current_user)
+        query = db.query(ExceptionRow).filter(ExceptionRow.batch_id == batch_id)
+    else:
+        query = db.query(ExceptionRow)
+        if not current_user.is_admin:
+            query = (
+                query.join(ImportBatch, ExceptionRow.batch_id == ImportBatch.id)
+                .join(Project, ImportBatch.project_id == Project.id)
+                .filter(Project.owner_id == current_user.id)
+            )
     if status:
         query = query.filter(ExceptionRow.resolution_status == status)
     return query.order_by(ExceptionRow.severity.desc()).all()
@@ -335,6 +378,7 @@ def resolve_exception(exception_id: int, decision: ResolveExceptionIn,
     row = db.query(ExceptionRow).filter(ExceptionRow.id == exception_id).first()
     if not row:
         raise HTTPException(404, "Exceção não encontrada.")
+    _get_authorized_batch(db, row.batch_id, current_user)
 
     row.resolution_status = decision.decision
     # resolved_by vem do usuário autenticado, não de texto livre enviado pelo
@@ -349,8 +393,9 @@ def resolve_exception(exception_id: int, decision: ResolveExceptionIn,
 
 @app.get("/imports/{batch_id}/readiness")
 def readiness_gate(batch_id: str, db: Session = Depends(get_db),
-                    _user: User = Depends(get_current_user)):
+                    current_user: User = Depends(get_current_user)):
     """Só libera geração de script se não houver BLOCKER pendente (Dry Run obrigatório)."""
+    _get_authorized_batch(db, batch_id, current_user)
     pending_blockers = (
         db.query(ExceptionRow)
         .filter(
@@ -368,7 +413,7 @@ def readiness_gate(batch_id: str, db: Session = Depends(get_db),
 
 @app.get("/imports/{batch_id}/script")
 def generate_script(batch_id: str, format: str = "texto", db: Session = Depends(get_db),
-                     _user: User = Depends(get_current_user)):
+                     current_user: User = Depends(get_current_user)):
     """Gera o arquivo de carga para o Winthor.
 
     format=texto (default) -> arquivo delimitado oficial (DA.RPI.010), o que
@@ -382,9 +427,7 @@ def generate_script(batch_id: str, format: str = "texto", db: Session = Depends(
     if format not in ("texto", "sql"):
         raise HTTPException(400, "format deve ser 'texto' ou 'sql'.")
 
-    batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
-    if not batch:
-        raise HTTPException(404, "Lote não encontrado.")
+    _get_authorized_batch(db, batch_id, current_user)
 
     pending_blockers = (
         db.query(ExceptionRow)

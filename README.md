@@ -74,6 +74,13 @@ Token expira em 12h. Todo o resto da API exige `Authorization: Bearer <token>`.
 `resolved_by` na Exception Queue vem do usuário autenticado — não é mais
 texto livre enviado pelo cliente, é dado de auditoria de verdade.
 
+**Isolamento por projeto**: admin vê e mexe em todos os projetos. Consultor
+só vê/acessa projetos dos quais é `owner` — por padrão, quem cria o projeto
+vira owner; admin pode atribuir a outro consultor na criação
+(`owner_email` no `POST /projects`, campo ignorado/bloqueado com 403 se
+quem chama não for admin). Tentar acessar projeto/lote/exceção de outro
+dono retorna 403, tanto por rota direta quanto por listagem.
+
 ## Dois formatos de saída, por decisão deliberada
 
 `GET /imports/{id}/script?format=texto|sql` — os dois convivem, não é migração

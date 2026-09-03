@@ -160,3 +160,100 @@ def test_resolve_exception_records_authenticated_user_not_client_input(raw_clien
     body = resp.json()
     assert body["resolved_by"] == "real.consultor@teste.com"
     assert body["resolved_by"] != "nome-forjado-qualquer"
+
+
+# ---------- Isolamento por projeto (admin vê tudo, consultor só o seu) ----------
+
+def _login(client, email, password="senha-forte-123"):
+    token = client.post("/auth/login", data={
+        "username": email, "password": password,
+    }).json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _create_consultant(raw_client, admin_headers, email, name="Consultor"):
+    raw_client.post("/users", headers=admin_headers, json={
+        "email": email, "name": name, "password": "senha-forte-123", "is_admin": False,
+    })
+    return _login(raw_client, email)
+
+
+def test_consultant_cannot_see_another_consultants_project(raw_client):
+    _bootstrap(raw_client)
+    admin_headers = _login(raw_client, "admin@teste.com")
+
+    consultor_a = _create_consultant(raw_client, admin_headers, "a@teste.com")
+    consultor_b = _create_consultant(raw_client, admin_headers, "b@teste.com")
+
+    project = raw_client.post("/projects", headers=consultor_a,
+                               json={"name": "Cliente da A"}).json()
+
+    # Consultor B não vê no listing...
+    lista_b = raw_client.get("/projects", headers=consultor_b).json()
+    assert project["id"] not in [p["id"] for p in lista_b]
+
+    # ...e não acessa diretamente por id.
+    resp = raw_client.get(f"/projects/{project['id']}/imports", headers=consultor_b)
+    assert resp.status_code == 403
+
+
+def test_admin_sees_all_projects(raw_client):
+    _bootstrap(raw_client)
+    admin_headers = _login(raw_client, "admin@teste.com")
+    consultor_a = _create_consultant(raw_client, admin_headers, "a2@teste.com")
+
+    project = raw_client.post("/projects", headers=consultor_a,
+                               json={"name": "Cliente da A2"}).json()
+
+    lista_admin = raw_client.get("/projects", headers=admin_headers).json()
+    assert project["id"] in [p["id"] for p in lista_admin]
+
+    resp = raw_client.get(f"/projects/{project['id']}/imports", headers=admin_headers)
+    assert resp.status_code == 200
+
+
+def test_admin_can_assign_project_to_another_consultant(raw_client):
+    _bootstrap(raw_client)
+    admin_headers = _login(raw_client, "admin@teste.com")
+    consultor = _create_consultant(raw_client, admin_headers, "c@teste.com")
+
+    project = raw_client.post("/projects", headers=admin_headers,
+                               json={"name": "Atribuído", "owner_email": "c@teste.com"}).json()
+    assert project["owner_id"] is not None
+
+    lista_consultor = raw_client.get("/projects", headers=consultor).json()
+    assert project["id"] in [p["id"] for p in lista_consultor]
+
+
+def test_non_admin_cannot_assign_project_to_others(raw_client):
+    _bootstrap(raw_client)
+    admin_headers = _login(raw_client, "admin@teste.com")
+    consultor_a = _create_consultant(raw_client, admin_headers, "a3@teste.com")
+    _create_consultant(raw_client, admin_headers, "b3@teste.com")
+
+    resp = raw_client.post("/projects", headers=consultor_a,
+                            json={"name": "X", "owner_email": "b3@teste.com"})
+    assert resp.status_code == 403
+
+
+def test_consultant_cannot_resolve_exception_of_others_project(raw_client):
+    _bootstrap(raw_client)
+    admin_headers = _login(raw_client, "admin@teste.com")
+    consultor_a = _create_consultant(raw_client, admin_headers, "a4@teste.com")
+    consultor_b = _create_consultant(raw_client, admin_headers, "b4@teste.com")
+
+    project = raw_client.post("/projects", headers=consultor_a, json={"name": "P"}).json()
+    sample_csv = Path(__file__).parent.parent.parent / "sample_data" / "produtos_exemplo.csv"
+    with sample_csv.open("rb") as f:
+        batch = raw_client.post(
+            "/imports", headers=consultor_a, data={"project_id": project["id"]},
+            files={"file": ("produtos_exemplo.csv", f, "text/csv")},
+        ).json()
+
+    exceptions = raw_client.get("/exceptions", headers=consultor_a,
+                                 params={"batch_id": batch["id"]}).json()
+    target = exceptions[0]
+
+    resp = raw_client.post(f"/exceptions/{target['id']}/resolve", headers=consultor_b,
+                            json={"decision": "APPROVED"})
+    assert resp.status_code == 403
