@@ -186,8 +186,22 @@ Em qualquer ambiente com mais de uma pessoa, usar Postgres via `WINTHOR_DB_URL`
 
 ### ⚠️ Ambiente compartilhado — este VPS roda o TNORTEANDO (produção)
 
-Antes de rodar qualquer `docker compose up`, meça a capacidade real disponível
-— não assuma:
+Diagnóstico medido neste VPS (4 núcleos, 15GB RAM, TNORTEANDO rodando 3
+ambientes — prod/dev/teste, 18 containers, ociosos em ~18% de 1 núcleo em
+uso normal): RAM e disco estão folgados (9,8GB e 178GB livres), **CPU é o
+recurso apertado** — só 4 núcleos no total pra tudo que já roda mais o que
+está subindo agora.
+
+Os limites em `.env.example`/`docker-compose.yml` já refletem isso:
+`APP_CPU_LIMIT=0.5`, `WORKER_CPU_LIMIT=1.0`, `DB_CPU_LIMIT=0.5`, Redis
+fixo em `0.25` — total **2,25 núcleos reservados no pior caso**, deixando
+1,75 núcleo (43%) de folga mesmo se minha stack inteira bater o teto ao
+mesmo tempo. Se um import grande parecer lento, é a `cpus` do `worker`
+fazendo esse trabalho de propósito — a alternativa (sem teto) é mais
+rápido às custas de risco pro TNORTEANDO, e essa troca não vale a pena.
+
+Antes de qualquer `docker compose up`, meça de novo se o cenário mudou
+desde a última checagem:
 
 ```bash
 free -h                    # RAM livre
@@ -196,14 +210,6 @@ docker ps                   # confirma o que já está rodando e não deve ser t
 docker system df            # espaço já usado por imagens/volumes existentes
 sudo ss -tlnp | grep LISTEN # portas já ocupadas
 ```
-
-Os limites de recurso em `docker-compose.yml` (`mem_limit`/`cpus` de cada
-serviço, configuráveis via `.env`) existem justamente pra um import grande
-no Winthor Data Deploy nunca consumir recurso a ponto de afetar o
-TNORTEANDO. **Ajuste os valores no `.env` conforme a folga real que os
-comandos acima mostrarem** — os defaults (`APP_MEM_LIMIT=512m`,
-`WORKER_MEM_LIMIT=1g`, etc.) são um ponto de partida conservador, não um
-número calculado pra este VPS específico.
 
 O projeto Compose tem nome explícito (`name: winthor-data-deploy` no topo
 do `docker-compose.yml`) — isso significa que `docker compose down`,

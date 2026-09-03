@@ -30,7 +30,7 @@ services:
     volumes:
       - winthor_output:/app/output
     mem_limit: ${APP_MEM_LIMIT:-512m}
-    cpus: ${APP_CPU_LIMIT:-1.0}
+    cpus: ${APP_CPU_LIMIT:-0.5}
 
   worker:
     build: .
@@ -49,7 +49,7 @@ services:
     # padrão (2) de propósito: prioriza não incomodar o vizinho sobre
     # velocidade máxima de processamento.
     mem_limit: ${WORKER_MEM_LIMIT:-1g}
-    cpus: ${WORKER_CPU_LIMIT:-1.5}
+    cpus: ${WORKER_CPU_LIMIT:-1.0}
 
   redis:
     image: redis:7-alpine
@@ -58,7 +58,7 @@ services:
     volumes:
       - winthor_redis:/data
     mem_limit: 256m
-    cpus: 0.5
+    cpus: 0.25
 
   db:
     image: postgres:16-alpine
@@ -70,7 +70,7 @@ services:
     volumes:
       - winthor_postgres:/var/lib/postgresql/data
     mem_limit: ${DB_MEM_LIMIT:-512m}
-    cpus: ${DB_CPU_LIMIT:-1.0}
+    cpus: ${DB_CPU_LIMIT:-0.5}
 
 volumes:
   winthor_postgres:
