@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Banco local (dev) — nunca versionar dados de cliente
+*.db
+*.sqlite
+*.sqlite3
+
+# Saídas geradas (scripts SQL de carga, relatórios) — contêm dados de cliente
+output/
+
+# Ambiente
+.env
+.env.*
+!.env.example
+
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
+
+# Node (se o frontend evoluir para build step)
+node_modules/

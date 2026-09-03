@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Winthor Data Deploy — Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #EEF1EF;
+    --surface: #FFFFFF;
+    --ink: #16211F;
+    --ink-soft: #4B5652;
+    --line: #D7DCD9;
+    --accent: #1F5C54;
+    --accent-soft: #E4EEEC;
+    --warn: #B8863B;
+    --warn-soft: #F6EDDD;
+    --danger: #A23B2E;
+    --danger-soft: #F5E4E0;
+    --blocker: #6B1E17;
+    --blocker-soft: #F1DDDA;
+    --radius: 3px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+
+  h1, h2, h3 {
+    font-family: 'IBM Plex Serif', serif;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .app {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    padding: 24px 18px;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    letter-spacing: 0.01em;
+    margin-bottom: 2px;
+  }
+
+  .sidebar .subtitle {
+    color: var(--ink-soft);
+    font-size: 11.5px;
+    margin-bottom: 24px;
+  }
+
+  .project-list {
+    list-style: none;
+    margin: 0 0 16px 0;
+    padding: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .project-list li {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .project-list button {
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: 10px 4px;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--ink);
+    cursor: pointer;
+  }
+
+  .project-list button:hover { color: var(--accent); }
+
+  .project-list button.active {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .new-project {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .new-project input {
+    flex: 1;
+    font-family: inherit;
+    font-size: 12.5px;
+    padding: 7px 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--paper);
+  }
+
+  /* ---------- Main ---------- */
+  main {
+    padding: 32px 40px;
+    max-width: 880px;
+  }
+
+  .empty-state {
+    color: var(--ink-soft);
+    padding-top: 80px;
+    max-width: 40ch;
+  }
+
+  .empty-state h2 { margin-bottom: 10px; }
+
+  section { margin-bottom: 36px; }
+
+  section > h2 {
+    font-size: 15px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 14px;
+  }
+
+  .upload-zone {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+
+  .upload-zone input[type=file] { font-family: inherit; font-size: 12.5px; }
+
+  button.primary {
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--accent);
+    border: none;
+    padding: 9px 16px;
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+
+  button.primary:disabled {
+    background: #A9B5B1;
+    cursor: not-allowed;
+  }
+
+  button.ghost {
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 6px 11px;
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+
+  button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* batch stats */
+  .batch-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .batch-row:last-child { border-bottom: none; }
+
+  .stat-line {
+    display: flex;
+    gap: 28px;
+    padding: 14px 0 4px 0;
+    color: var(--ink-soft);
+    font-size: 12.5px;
+  }
+
+  .stat-line b { color: var(--ink); font-size: 15px; display: block; font-family: 'IBM Plex Serif', serif; }
+
+  /* exceptions */
+  .exception-row {
+    display: grid;
+    grid-template-columns: 96px 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 12px 14px;
+    background: var(--surface);
+    border-left: 4px solid var(--line);
+    margin-bottom: 6px;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    transition: opacity 0.25s ease;
+  }
+
+  .exception-row[data-severity="BLOCKER"] { border-left-color: var(--blocker); }
+  .exception-row[data-severity="HIGH"] { border-left-color: var(--danger); }
+  .exception-row[data-severity="MEDIUM"] { border-left-color: var(--warn); }
+  .exception-row[data-severity="LOW"] { border-left-color: var(--line); }
+
+  .exception-row.resolved { opacity: 0.4; }
+
+  .sev-tag {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+  .exception-row[data-severity="BLOCKER"] .sev-tag { color: var(--blocker); }
+  .exception-row[data-severity="HIGH"] .sev-tag { color: var(--danger); }
+  .exception-row[data-severity="MEDIUM"] .sev-tag { color: var(--warn); }
+  .exception-row[data-severity="LOW"] .sev-tag { color: var(--ink-soft); }
+
+  .exception-body .reason { font-weight: 600; margin-right: 8px; }
+  .exception-body .desc { color: var(--ink-soft); }
+  .exception-body .status-tag {
+    display: inline-block;
+    margin-top: 3px;
+    font-size: 11px;
+    color: var(--accent);
+  }
+
+  .exception-actions { display: flex; gap: 6px; white-space: nowrap; }
+
+  .no-exceptions {
+    color: var(--ink-soft);
+    padding: 16px 0;
+  }
+
+  .script-panel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+
+  .script-panel .note { font-size: 12px; color: var(--ink-soft); max-width: 46ch; }
+  .script-panel .note.blocked { color: var(--blocker); }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--ink);
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    font-size: 12.5px;
+    max-width: 340px;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <aside class="sidebar">
+    <h1>Winthor Data Deploy</h1>
+    <div class="subtitle">Console de migração — MVP</div>
+
+    <ul class="project-list" id="project-list"></ul>
+
+    <form class="new-project" id="new-project-form">
+      <input type="text" id="new-project-name" placeholder="Nome do projeto (cliente)" required>
+      <button class="ghost" type="submit">+</button>
+    </form>
+  </aside>
+
+  <main id="main">
+    <div class="empty-state">
+      <h2>Nenhum projeto selecionado</h2>
+      <p>Crie um projeto ao lado (ex: nome do cliente) para começar: subir arquivos,
+      validar automaticamente e tratar exceções antes de gerar o script de carga.</p>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = "";
+let currentProject = null;
+let currentBatch = null;
+
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 3200);
+}
+
+async function api(path, opts) {
+  const resp = await fetch(API + path, opts);
+  if (!resp.ok && resp.headers.get("content-type")?.includes("application/json")) {
+    const err = await resp.json();
+    throw new Error(err.detail || resp.statusText);
+  }
+  if (!resp.ok) throw new Error(await resp.text());
+  return resp;
+}
+
+async function loadProjects() {
+  const resp = await api("/projects");
+  const projects = await resp.json();
+  const list = document.getElementById("project-list");
+  list.innerHTML = "";
+  projects.forEach(p => {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.textContent = p.name;
+    btn.className = currentProject === p.id ? "active" : "";
+    btn.onclick = () => selectProject(p.id, p.name);
+    li.appendChild(btn);
+    list.appendChild(li);
+  });
+}
+
+document.getElementById("new-project-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const input = document.getElementById("new-project-name");
+  const name = input.value.trim();
+  if (!name) return;
+  const resp = await api("/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  const project = await resp.json();
+  input.value = "";
+  await loadProjects();
+  selectProject(project.id, project.name);
+};
+
+async function selectProject(id, name) {
+  currentProject = id;
+  currentBatch = null;
+  await loadProjects();
+  renderProjectView(name);
+}
+
+function renderProjectView(name) {
+  const main = document.getElementById("main");
+  main.innerHTML = `
+    <section>
+      <h2>${name}</h2>
+      <div class="upload-zone">
+        <input type="file" id="file-input" accept=".csv">
+        <button class="primary" id="upload-btn">Enviar e validar</button>
+      </div>
+    </section>
+    <section id="batches-section">
+      <h2>Lotes importados</h2>
+      <div id="batches-list"></div>
+    </section>
+    <section id="detail-section" style="display:none;">
+      <h2>Fila de exceções</h2>
+      <div class="stat-line" id="stat-line"></div>
+      <div id="exceptions-list"></div>
+    </section>
+    <section id="script-section" style="display:none;">
+      <h2>Script de carga (Oracle)</h2>
+      <div class="script-panel">
+        <div class="note" id="script-note"></div>
+        <button class="primary" id="generate-script-btn">Gerar script .sql</button>
+      </div>
+    </section>
+  `;
+
+  document.getElementById("upload-btn").onclick = uploadFile;
+  loadBatches();
+}
+
+async function uploadFile() {
+  const fileInput = document.getElementById("file-input");
+  if (!fileInput.files.length) { toast("Selecione um arquivo CSV."); return; }
+
+  const form = new FormData();
+  form.append("project_id", currentProject);
+  form.append("file", fileInput.files[0]);
+
+  try {
+    const resp = await api("/imports", { method: "POST", body: form });
+    const batch = await resp.json();
+    toast(`Importado: ${batch.total_records} registros, ${batch.exception_count} exceções.`);
+    fileInput.value = "";
+    await loadBatches();
+    selectBatch(batch.id);
+  } catch (err) {
+    toast("Erro no import: " + err.message);
+  }
+}
+
+async function loadBatches() {
+  const resp = await api(`/projects/${currentProject}/imports`);
+  const batches = await resp.json();
+  const list = document.getElementById("batches-list");
+
+  if (!batches.length) {
+    list.innerHTML = '<p class="no-exceptions">Nenhum lote ainda. Envie um CSV acima.</p>';
+    return;
+  }
+
+  list.innerHTML = "";
+  batches.forEach(b => {
+    const row = document.createElement("div");
+    row.className = "batch-row";
+    row.innerHTML = `
+      <div>
+        <strong>${b.source_file}</strong><br>
+        <span style="color:var(--ink-soft); font-size:11.5px;">
+          ${b.total_records} registros · ${b.exception_count} exceções ·
+          readiness ${(b.data_readiness_score * 100).toFixed(0)}%
+        </span>
+      </div>
+      <button class="ghost">Abrir</button>
+    `;
+    row.querySelector("button").onclick = () => selectBatch(b.id);
+    list.appendChild(row);
+  });
+}
+
+async function selectBatch(batchId) {
+  currentBatch = batchId;
+  document.getElementById("detail-section").style.display = "block";
+  document.getElementById("script-section").style.display = "block";
+  await loadExceptions();
+}
+
+async function loadExceptions() {
+  const [reportResp, exResp, readyResp] = await Promise.all([
+    api(`/imports/${currentBatch}/report`),
+    api(`/exceptions?batch_id=${currentBatch}`),
+    api(`/imports/${currentBatch}/readiness`),
+  ]);
+  const report = await reportResp.json();
+  const exceptions = await exResp.json();
+  const readiness = await readyResp.json();
+
+  document.getElementById("stat-line").innerHTML = `
+    <div><b>${report.total_registros}</b>registros</div>
+    <div><b>${report.total_excecoes}</b>exceções</div>
+    <div><b>${(report.data_readiness_score * 100).toFixed(0)}%</b>data readiness</div>
+    <div><b>${report.excecoes_bloqueantes}</b>bloqueantes</div>
+  `;
+
+  const list = document.getElementById("exceptions-list");
+  if (!exceptions.length) {
+    list.innerHTML = '<p class="no-exceptions">Nenhuma exceção — lote limpo.</p>';
+  } else {
+    list.innerHTML = "";
+    exceptions.forEach(ex => {
+      const row = document.createElement("div");
+      row.className = "exception-row" + (ex.resolution_status !== "PENDING" ? " resolved" : "");
+      row.dataset.severity = ex.severity;
+      row.innerHTML = `
+        <div class="sev-tag">${ex.severity}</div>
+        <div class="exception-body">
+          <span class="reason">${ex.reason_code}</span>
+          <span class="desc">${ex.description}</span><br>
+          <span class="status-tag">${ex.record_id} · ${ex.resolution_status}${ex.resolved_by ? " · " + ex.resolved_by : ""}</span>
+        </div>
+        <div class="exception-actions">
+          ${ex.resolution_status === "PENDING" ? `
+            <button class="ghost" data-action="APPROVED">Aprovar</button>
+            <button class="ghost" data-action="REJECTED">Rejeitar</button>
+          ` : ""}
+        </div>
+      `;
+      row.querySelectorAll("button").forEach(btn => {
+        btn.onclick = () => resolveException(ex.id, btn.dataset.action);
+      });
+      list.appendChild(row);
+    });
+  }
+
+  const scriptNote = document.getElementById("script-note");
+  const scriptBtn = document.getElementById("generate-script-btn");
+  if (readiness.ready_for_dry_run) {
+    scriptNote.className = "note";
+    scriptNote.textContent = "Sem exceções bloqueantes pendentes. Pronto para gerar o script.";
+    scriptBtn.disabled = false;
+  } else {
+    scriptNote.className = "note blocked";
+    scriptNote.textContent = `${readiness.pending_blockers} exceção(ões) BLOCKER pendente(s). Resolva antes de gerar o script.`;
+    scriptBtn.disabled = true;
+  }
+  scriptBtn.onclick = generateScript;
+}
+
+async function resolveException(id, decision) {
+  const resolvedBy = prompt("Seu nome/usuário (para auditoria):", "consultor");
+  if (!resolvedBy) return;
+  try {
+    await api(`/exceptions/${id}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision, resolved_by: resolvedBy }),
+    });
+    toast(decision === "APPROVED" ? "Exceção aprovada." : "Exceção rejeitada.");
+    await loadExceptions();
+    await loadBatches();
+  } catch (err) {
+    toast("Erro: " + err.message);
+  }
+}
+
+async function generateScript() {
+  try {
+    const resp = await fetch(`${API}/imports/${currentBatch}/script`);
+    if (!resp.ok) {
+      const text = await resp.text();
+      toast("Bloqueado: " + text);
+      return;
+    }
+    const blob = await resp.blob();
+    const included = resp.headers.get("X-Records-Included");
+    const skipped = resp.headers.get("X-Records-Skipped");
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `winthor_carga_${currentBatch.slice(0, 8)}.sql`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast(`Script gerado: ${included} registros incluídos, ${skipped} ignorados.`);
+  } catch (err) {
+    toast("Erro ao gerar script: " + err.message);
+  }
+}
+
+loadProjects();
+</script>
+</body>
+</html>

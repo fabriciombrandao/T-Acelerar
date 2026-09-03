@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Troque para Postgres em produção (ver .env.example). SQLite é ok
+      # para o piloto/MVP com um cliente por vez.
+      WINTHOR_DB_URL: ${WINTHOR_DB_URL:-sqlite:////app/data/winthor_data_deploy.db}
+    volumes:
+      - winthor_data:/app/data
+      - winthor_output:/app/output
+
+  # Descomente quando for trocar SQLite por Postgres real.
+  # db:
+  #   image: postgres:16-alpine
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_DB: winthor_data_deploy
+  #     POSTGRES_USER: winthor
+  #     POSTGRES_PASSWORD: troque_isto
+  #   volumes:
+  #     - winthor_postgres:/var/lib/postgresql/data
+
+volumes:
+  winthor_data:
+  winthor_output:
+  # winthor_postgres:

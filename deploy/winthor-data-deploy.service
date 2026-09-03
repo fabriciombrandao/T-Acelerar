@@ -1,0 +1,19 @@
+[Unit]
+Description=Winthor Data Deploy — API/Console
+After=network.target
+
+[Service]
+Type=simple
+# Ajuste usuário e caminho para o seu VPS.
+User=winthor
+WorkingDirectory=/opt/winthor-data-deploy
+EnvironmentFile=/opt/winthor-data-deploy/.env
+Environment=PYTHONPATH=/opt/winthor-data-deploy/backend
+ExecStart=/opt/winthor-data-deploy/.venv/bin/uvicorn app.api:app \
+    --app-dir /opt/winthor-data-deploy/backend \
+    --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

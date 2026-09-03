@@ -1,0 +1,20 @@
+{
+  "_aviso": "PLACEHOLDER. Nome de tabela e colunas NÃO confirmados contra o dicionário oficial Winthor (ver README, seção 'Pendências'). Ajustar assim que o layout oficial chegar (próximos passos, item 1 do documento original).",
+  "table": "PCPRODUT",
+  "primary_key_canonical": "external_id",
+  "columns": [
+    { "canonical": "external_id",  "column": "CODPROD",   "type": "string",  "nullable": false, "max_length": 15 },
+    { "canonical": "description",  "column": "DESCRICAO", "type": "string",  "nullable": false, "max_length": 100 },
+    { "canonical": "barcode",      "column": "CODAUXILIAR","type": "string", "nullable": true,  "max_length": 20 },
+    { "canonical": "ncm",          "column": "NCM",        "type": "string",  "nullable": true,  "max_length": 8 },
+    { "canonical": "cest",         "column": "CEST",       "type": "string",  "nullable": true,  "max_length": 7 },
+    { "canonical": "unit",         "column": "UNID",       "type": "string",  "nullable": true,  "max_length": 6 },
+    { "canonical": "brand",        "column": "MARCA",      "type": "string",  "nullable": true,  "max_length": 40 },
+    { "canonical": "family",       "column": "CODFAMILIA", "type": "string",  "nullable": true,  "max_length": 20 },
+    { "canonical": "department",   "column": "CODEPTO",    "type": "string",  "nullable": true,  "max_length": 20 },
+    { "canonical": "weight",       "column": "PESOLIQ",    "type": "number",  "nullable": true }
+  ],
+  "fixed_columns": {
+    "ATIVO": "'S'"
+  }
+}
