@@ -184,6 +184,40 @@ Em qualquer ambiente com mais de uma pessoa, usar Postgres via `WINTHOR_DB_URL`
 
 ## Deploy
 
+### ⚠️ Ambiente compartilhado — este VPS roda o TNORTEANDO (produção)
+
+Antes de rodar qualquer `docker compose up`, meça a capacidade real disponível
+— não assuma:
+
+```bash
+free -h                    # RAM livre
+df -h                       # disco livre (atenção à partição onde fica /var/lib/docker)
+docker ps                   # confirma o que já está rodando e não deve ser tocado
+docker system df            # espaço já usado por imagens/volumes existentes
+sudo ss -tlnp | grep LISTEN # portas já ocupadas
+```
+
+Os limites de recurso em `docker-compose.yml` (`mem_limit`/`cpus` de cada
+serviço, configuráveis via `.env`) existem justamente pra um import grande
+no Winthor Data Deploy nunca consumir recurso a ponto de afetar o
+TNORTEANDO. **Ajuste os valores no `.env` conforme a folga real que os
+comandos acima mostrarem** — os defaults (`APP_MEM_LIMIT=512m`,
+`WORKER_MEM_LIMIT=1g`, etc.) são um ponto de partida conservador, não um
+número calculado pra este VPS específico.
+
+O projeto Compose tem nome explícito (`name: winthor-data-deploy` no topo
+do `docker-compose.yml`) — isso significa que `docker compose down`,
+`docker compose ps`, etc. rodados de dentro desta pasta **só enxergam os
+containers desta stack**, nunca os do TNORTEANDO, mesmo que ambos usem
+Docker Compose no mesmo host. Ainda assim: nunca rode `docker system
+prune` sem `--filter` neste VPS — isso limpa recurso não usado *de
+qualquer stack*, TNORTEANDO incluído.
+
+Se algo der errado e precisar reverter rápido:
+```bash
+docker compose -p winthor-data-deploy down   # para só esta stack, nada mais
+```
+
 ### Opção A — Docker (recomendado para VPS compartilhado)
 
 ```bash
