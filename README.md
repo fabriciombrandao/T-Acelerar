@@ -233,12 +233,21 @@ ambiente errado.
 | Rede | `net-tnorteando-{env}` | `net-tacelerar-winthor-{env}` |
 | Porta backend (127.0.0.1 só) | 8010/8011/8012 | **8020/8021/8022** (prod/dev/teste) |
 | Porta frontend (127.0.0.1 só) | 3010/3011/3012 | **3020/3021/3022** (prod/dev/teste) |
-| Domínio | `tnorteando.com.br` / `desenv....` / `teste....` | `servicos.tnorteando.com.br` / `desenv.servicos....` / `teste.servicos....` |
+| Domínio | `tnorteando.com.br` / `desenv....` / `teste....` | `servicos.tnorteando.com.br` (prod) / dev e teste: a decidir quando forem ativados |
 
 Sem `celery-beat` do nosso lado — não temos tarefa agendada/periódica, só
 processamento sob demanda (import de arquivo).
 
-### Passo a passo, por ambiente (repetir 3x, trocando `prod` por `dev`/`teste`)
+### Escopo atual: só produção
+
+Decisão registrada: por enquanto só `prod` sobe de verdade, com domínio e
+TLS. `docker-compose.dev.yml` e `docker-compose.teste.yml` já existem no
+repo (mesma estrutura, recurso bem mais baixo, prontos pra quando forem
+necessários), mas **não sobem agora** — sem domínio próprio, sem certbot
+rodado pra eles. Quando precisar, é o mesmo passo a passo abaixo trocando
+`prod` por `dev`/`teste`, mais decidir o domínio deles nessa hora.
+
+### Passo a passo — produção
 
 **1. Checkout:**
 ```bash
@@ -262,8 +271,6 @@ nano .env
 Preencher: `POSTGRES_PASSWORD`, `TACELERAR_DB_URL` (mesma senha, duplicada —
 ver comentário no `.env.example` explicando por quê), `TACELERAR_JWT_SECRET`
 e `TACELERAR_BOOTSTRAP_SECRET` (gerar com `python3 -c "import secrets; print(secrets.token_hex(32))"`).
-Trocar `POSTGRES_DB`/nome do banco por ambiente (ex: `tacelerar_winthor_dev`)
-pra evitar qualquer ambiguidade, mesmo já estando em diretório/rede isolados.
 
 **4. Subir:**
 ```bash
@@ -276,7 +283,7 @@ docker compose -f docker-compose.prod.yml ps
 curl http://127.0.0.1:8020/health
 ```
 
-**6. Criar o primeiro DIRETOR** (uma vez por ambiente — cada ambiente tem seu próprio banco de usuários):
+**6. Criar o primeiro DIRETOR:**
 ```bash
 curl -X POST http://127.0.0.1:8020/api/auth/bootstrap-admin \
   -H "Content-Type: application/json" \
@@ -291,43 +298,24 @@ sudo ln -s /etc/nginx/sites-available/tacelerar-winthor-prod /etc/nginx/sites-en
 sudo certbot --nginx -d servicos.tnorteando.com.br
 sudo nginx -t && sudo systemctl reload nginx
 ```
+(Confirma que o DNS de `servicos.tnorteando.com.br` já aponta pro IP do
+VPS antes desse passo — certbot precisa disso pra validar o domínio.)
 
-Repetir os 7 passos pra `dev` (`docker-compose.dev.yml`, portas 8021/3021,
-domínio `desenv.servicos.tnorteando.com.br`) e `teste` (`docker-compose.teste.yml`,
-portas 8022/3022, domínio `teste.servicos.tnorteando.com.br`).
+### Orçamento de CPU — só prod, por enquanto
 
-### ⚠️ Orçamento de CPU — 4 núcleos não sobram muito com 6 ambientes no total
+VPS medido: 4 núcleos, TNORTEANDO já roda 3 ambientes completos (ocioso em
+~18% de 1 núcleo em uso normal, com pico observado de 2,7GB RAM no worker
+de produção deles). Só `prod` da nossa stack, no pior caso de CPU (tudo no
+teto ao mesmo tempo):
 
-VPS medido: **4 núcleos**, TNORTEANDO já roda 3 ambientes completos (18
-containers, ocioso em ~18% de 1 núcleo em uso normal, mas com pico
-observado de 2,7GB RAM no worker de produção deles — picos reais
-acontecem). Nossos 3 ambientes somados, no pior caso de CPU (tudo no teto
-ao mesmo tempo):
-
-| Ambiente | db | redis | backend | frontend | worker | **total** |
+| Serviço | db | redis | backend | frontend | worker | **total** |
 |---|---|---|---|---|---|---|
-| prod | 0.5 | 0.25 | 0.5 | 0.1 | 1.0 | **2.35** |
-| dev | 0.15 | 0.1 | 0.25 | 0.05 | 0.25 | **0.8** |
-| teste | 0.15 | 0.1 | 0.25 | 0.05 | 0.25 | **0.8** |
-| | | | | | **soma** | **3.95 de 4 núcleos** |
+| prod | 0.5 | 0.25 | 0.5 | 0.1 | 1.0 | **2.35 de 4 núcleos** |
 
-Isso é **quase a máquina inteira**, considerando só a nossa stack, num VPS
-que também roda o TNORTEANDO. Os limites por container impedem qualquer
-um sozinho de consumir mais que o combinado, mas não existe mágica: se
-prod, dev e teste estiverem todos processando algo pesado ao mesmo tempo
-*e* o TNORTEANDO tiver pico simultâneo, todo mundo fica mais lento
-(contenção de CPU é dividida de forma justa pelo kernel, não trava nem
-derruba nada sozinho — mas degrada).
-
-**Recomendação prática**: manter só **prod rodando 24/7**. Deixar dev/teste
-parados quando não estiverem em uso ativo de teste:
-```bash
-docker compose -f docker-compose.dev.yml stop
-docker compose -f docker-compose.teste.yml stop
-```
-E subir de novo só na hora de testar (`up -d`, sem `--build` se a imagem
-já existir). Isso reduz o custo real do dia a dia pra só os 2,35 núcleos
-do prod — bem mais folgado ao lado do TNORTEANDO.
+Bem mais folgado que o cenário com os 3 ambientes juntos (que chegava a
+3,95 de 4). Se no futuro dev/teste entrarem em uso constante, revisitar
+essa conta antes de deixá-los rodando 24/7 — a matemática dos 3 juntos já
+está documentada no histórico do commit `df61887`, caso precise depois.
 
 ### CI
 
