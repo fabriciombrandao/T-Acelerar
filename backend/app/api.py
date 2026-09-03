@@ -19,11 +19,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Response, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.auth import (Role, authenticate_user, can_see_owner, create_access_token,
@@ -39,7 +40,6 @@ from app.winthor.adherence import (load_modules_config, load_segments_config,
 from app.winthor.oracle_generator import generate_insert_script
 from app.winthor.text_file_generator import generate_text_file
 
-STATIC_DIR = Path(__file__).resolve().parents[2] / "frontend"
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "output" / "scripts"
 UPLOADS_DIR = Path(__file__).resolve().parents[2] / "output" / "uploads"
 
@@ -58,6 +58,33 @@ app = FastAPI(
     version="0.4.0",
     lifespan=lifespan,
 )
+
+# Frontend é container separado do backend (nginx unifica sob o mesmo
+# domínio em produção via /api/ vs /, então CORS não entra em jogo lá).
+# Isso só importa pra rodar local sem Docker/nginx, com frontend e backend
+# em portas diferentes. Autenticação usa Bearer token (não cookie), então
+# allow_origins="*" não expõe sessão de ninguém — o token só vai se o JS
+# da própria página o enviar explicitamente no header.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health")
+def health_check(db: Session = Depends(get_db)):
+    """Sem autenticação de propósito — é só pra Docker healthcheck (padrão
+    do time: mesmo formato usado no TNORTEANDO). Confirma que a API está de
+    pé E que o banco responde, não só que o processo está vivo."""
+    db.execute(text("SELECT 1"))
+    return {"status": "ok"}
+
+
+# Tudo abaixo fica sob /api — nginx roteia /api/* pro backend e o resto
+# pro container de frontend (padrão do time, ver deploy/nginx-*.conf).
+router = APIRouter(prefix="/api")
 
 
 # ---------- Autorização por projeto ----------
@@ -176,7 +203,7 @@ class ResolveExceptionIn(BaseModel):
 
 # ---------- Autenticação ----------
 
-@app.post("/auth/login", response_model=TokenOut)
+@router.post("/auth/login", response_model=TokenOut)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
@@ -185,18 +212,18 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     return TokenOut(access_token=create_access_token(user))
 
 
-@app.get("/auth/me", response_model=UserOut)
+@router.get("/auth/me", response_model=UserOut)
 def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
 
-@app.post("/auth/bootstrap-admin", response_model=UserOut)
+@router.post("/auth/bootstrap-admin", response_model=UserOut)
 def bootstrap_admin(payload: BootstrapAdminIn, db: Session = Depends(get_db)):
     """Cria o primeiro DIRETOR. Só funciona uma vez (enquanto não houver
-    nenhum usuário) e exige o secret de ambiente WINTHOR_BOOTSTRAP_SECRET."""
-    expected_secret = os.environ.get("WINTHOR_BOOTSTRAP_SECRET")
+    nenhum usuário) e exige o secret de ambiente TACELERAR_BOOTSTRAP_SECRET."""
+    expected_secret = os.environ.get("TACELERAR_BOOTSTRAP_SECRET")
     if not expected_secret:
-        raise HTTPException(503, "WINTHOR_BOOTSTRAP_SECRET não configurado no servidor.")
+        raise HTTPException(503, "TACELERAR_BOOTSTRAP_SECRET não configurado no servidor.")
     if payload.bootstrap_secret != expected_secret:
         raise HTTPException(403, "Secret de bootstrap incorreto.")
     if db.query(User).count() > 0:
@@ -207,7 +234,7 @@ def bootstrap_admin(payload: BootstrapAdminIn, db: Session = Depends(get_db)):
 
 # ---------- Usuários (diretor gerencia todos; coordenador só sua equipe) ----------
 
-@app.post("/users", response_model=UserOut)
+@router.post("/users", response_model=UserOut)
 def create_user_endpoint(payload: UserCreateIn, db: Session = Depends(get_db),
                           current_user: User = Depends(get_current_coordenador_ou_acima)):
     if payload.role not in {r.value for r in Role}:
@@ -233,7 +260,7 @@ def create_user_endpoint(payload: UserCreateIn, db: Session = Depends(get_db),
                         role=payload.role, manager_id=manager_id)
 
 
-@app.get("/users", response_model=list[UserOut])
+@router.get("/users", response_model=list[UserOut])
 def list_users(db: Session = Depends(get_db),
                current_user: User = Depends(get_current_coordenador_ou_acima)):
     if current_user.role == Role.DIRETOR:
@@ -246,7 +273,7 @@ def list_users(db: Session = Depends(get_db),
 
 # ---------- Projetos ----------
 
-@app.post("/projects", response_model=ProjectOut)
+@router.post("/projects", response_model=ProjectOut)
 def create_project(payload: ProjectIn, db: Session = Depends(get_db),
                     current_user: User = Depends(get_current_user)):
     owner_id = current_user.id
@@ -270,7 +297,7 @@ def create_project(payload: ProjectIn, db: Session = Depends(get_db),
     return project
 
 
-@app.get("/projects", response_model=list[ProjectOut])
+@router.get("/projects", response_model=list[ProjectOut])
 def list_projects(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     query = db.query(Project)
     ids = visible_owner_ids(db, current_user)
@@ -279,7 +306,7 @@ def list_projects(db: Session = Depends(get_db), current_user: User = Depends(ge
     return query.order_by(Project.created_at.desc()).all()
 
 
-@app.get("/projects/{project_id}/imports", response_model=list[BatchSummary])
+@router.get("/projects/{project_id}/imports", response_model=list[BatchSummary])
 def list_project_imports(project_id: str, db: Session = Depends(get_db),
                           current_user: User = Depends(get_current_user)):
     _get_authorized_project(db, project_id, current_user)
@@ -293,19 +320,19 @@ def list_project_imports(project_id: str, db: Session = Depends(get_db),
 
 # ---------- Wizard de aderência ----------
 
-@app.get("/adherence/segments")
+@router.get("/adherence/segments")
 def get_segments(_user: User = Depends(get_current_user)):
     """Segmentos/subsegmentos disponíveis, com preset de módulos por subsegmento."""
     return load_segments_config()
 
 
-@app.get("/adherence/modules")
+@router.get("/adherence/modules")
 def get_modules(_user: User = Depends(get_current_user)):
     """Definição dos módulos de aderência do PCPRODUT (para montar o wizard)."""
     return load_modules_config()
 
 
-@app.post("/projects/{project_id}/adherence", response_model=AdherenceOut)
+@router.post("/projects/{project_id}/adherence", response_model=AdherenceOut)
 def set_project_adherence(project_id: str, payload: AdherenceIn, db: Session = Depends(get_db),
                            current_user: User = Depends(get_current_user)):
     """Salva segmento/subsegmento escolhidos + aplica preset, com overrides opcionais."""
@@ -327,7 +354,7 @@ def set_project_adherence(project_id: str, payload: AdherenceIn, db: Session = D
                          adherence_answers=project.adherence_answers)
 
 
-@app.get("/projects/{project_id}/adherence", response_model=AdherenceOut)
+@router.get("/projects/{project_id}/adherence", response_model=AdherenceOut)
 def get_project_adherence(project_id: str, db: Session = Depends(get_db),
                            current_user: User = Depends(get_current_user)):
     project = _get_authorized_project(db, project_id, current_user)
@@ -337,7 +364,7 @@ def get_project_adherence(project_id: str, db: Session = Depends(get_db),
 
 # ---------- Imports / Pipeline ----------
 
-@app.post("/imports", response_model=BatchSummary)
+@router.post("/imports", response_model=BatchSummary)
 async def create_import(project_id: str = Form(...), file: UploadFile = None,
                          db: Session = Depends(get_db),
                          current_user: User = Depends(get_current_user)):
@@ -363,7 +390,7 @@ async def create_import(project_id: str = Form(...), file: UploadFile = None,
     return batch
 
 
-@app.get("/imports/{batch_id}", response_model=BatchSummary)
+@router.get("/imports/{batch_id}", response_model=BatchSummary)
 def get_import_status(batch_id: str, db: Session = Depends(get_db),
                        current_user: User = Depends(get_current_user)):
     """Polling de status — use enquanto o lote estiver PENDING/PROCESSING."""
@@ -371,14 +398,14 @@ def get_import_status(batch_id: str, db: Session = Depends(get_db),
     return batch
 
 
-@app.get("/imports/{batch_id}/report")
+@router.get("/imports/{batch_id}/report")
 def get_report(batch_id: str, db: Session = Depends(get_db),
                 current_user: User = Depends(get_current_user)):
     batch = _get_authorized_batch(db, batch_id, current_user)
     return batch.report
 
 
-@app.get("/imports/{batch_id}/products")
+@router.get("/imports/{batch_id}/products")
 def list_products(batch_id: str, response: Response, limit: int = 200, offset: int = 0,
                    db: Session = Depends(get_db),
                    current_user: User = Depends(get_current_user)):
@@ -404,7 +431,7 @@ def list_products(batch_id: str, response: Response, limit: int = 200, offset: i
 
 # ---------- Exception Queue ----------
 
-@app.get("/exceptions", response_model=list[ExceptionOut])
+@router.get("/exceptions", response_model=list[ExceptionOut])
 def list_exceptions(response: Response, batch_id: Optional[str] = None,
                      status: Optional[str] = None, limit: int = 200, offset: int = 0,
                      db: Session = Depends(get_db),
@@ -436,7 +463,7 @@ def list_exceptions(response: Response, batch_id: Optional[str] = None,
     )
 
 
-@app.post("/exceptions/{exception_id}/resolve", response_model=ExceptionOut)
+@router.post("/exceptions/{exception_id}/resolve", response_model=ExceptionOut)
 def resolve_exception(exception_id: int, decision: ResolveExceptionIn,
                        db: Session = Depends(get_db),
                        current_user: User = Depends(get_current_user)):
@@ -459,7 +486,7 @@ def resolve_exception(exception_id: int, decision: ResolveExceptionIn,
     return row
 
 
-@app.get("/imports/{batch_id}/readiness")
+@router.get("/imports/{batch_id}/readiness")
 def readiness_gate(batch_id: str, db: Session = Depends(get_db),
                     current_user: User = Depends(get_current_user)):
     """Só libera geração de script se não houver BLOCKER pendente (Dry Run obrigatório)."""
@@ -479,7 +506,7 @@ def readiness_gate(batch_id: str, db: Session = Depends(get_db),
 
 # ---------- Geração de script ----------
 
-@app.get("/imports/{batch_id}/script")
+@router.get("/imports/{batch_id}/script")
 def generate_script(batch_id: str, format: str = "texto", db: Session = Depends(get_db),
                      current_user: User = Depends(get_current_user)):
     """Gera o arquivo de carga para o Winthor.
@@ -563,7 +590,7 @@ def generate_script(batch_id: str, format: str = "texto", db: Session = Depends(
     )
 
 
-# ---------- Frontend estático ----------
-
-if STATIC_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")
+# Frontend agora é um serviço/container separado (nginx servindo
+# frontend/index.html) — não é mais servido por esta API. Ver
+# frontend/Dockerfile e deploy/nginx-*.conf.
+app.include_router(router)

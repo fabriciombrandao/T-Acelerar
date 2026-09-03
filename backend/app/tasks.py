@@ -2,11 +2,11 @@
 Processamento assíncrono de import — Celery.
 
 Degradação graciosa deliberada:
-  - WINTHOR_REDIS_URL não configurado (dev local, testes, CI) -> tasks
+  - TACELERAR_REDIS_URL não configurado (dev local, testes, CI) -> tasks
     rodam em modo "eager": síncronas, dentro do próprio processo, na hora
     em que são chamadas. Comportamento idêntico ao pipeline síncrono
     original — nenhum teste precisa saber que Celery existe.
-  - WINTHOR_REDIS_URL configurado (VPS de produção) -> tasks são
+  - TACELERAR_REDIS_URL configurado (VPS de produção) -> tasks são
     enfileiradas de verdade; um processo `celery worker` separado
     (serviço `worker` no docker-compose) as processa. A requisição HTTP
     de upload responde na hora (202/lote em PENDING), sem esperar o
@@ -23,7 +23,7 @@ import os
 
 from celery import Celery
 
-REDIS_URL = os.environ.get("WINTHOR_REDIS_URL")
+REDIS_URL = os.environ.get("TACELERAR_REDIS_URL")
 EAGER_MODE = REDIS_URL is None
 
 celery_app = Celery(

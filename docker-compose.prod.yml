@@ -1,0 +1,108 @@
+name: tacelerar-winthor-prod
+
+# Ambiente de PRODUÇÃO. Estrutura espelha o padrão TNORTEANDO já usado
+# neste VPS: container_name explícito, healthcheck em db/redis/backend,
+# depends_on com condition: service_healthy, bind mount em caminho
+# explícito do host (não volume nomeado do Docker — mais fácil de
+# inspecionar/backupar diretamente).
+#
+# Limites de recurso calibrados para o VPS medido (4 núcleos, TNORTEANDO
+# já rodando 3 ambientes). Ver README.md, seção "Ambiente compartilhado".
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: tacelerar-winthor-prod-db
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - /opt/tacelerar-winthor/prod/data/postgres:/var/lib/postgresql/data
+    networks: [net-tacelerar-winthor-prod]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 512m
+    cpus: 0.5
+
+  redis:
+    image: redis:7-alpine
+    container_name: tacelerar-winthor-prod-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 200mb --maxmemory-policy allkeys-lru
+    volumes:
+      - /opt/tacelerar-winthor/prod/data/redis:/data
+    networks: [net-tacelerar-winthor-prod]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+    mem_limit: 256m
+    cpus: 0.25
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tacelerar-winthor-backend:prod
+    container_name: tacelerar-winthor-prod-backend
+    restart: unless-stopped
+    env_file: .env
+    ports: ["127.0.0.1:8020:8000"]
+    volumes:
+      - /opt/tacelerar-winthor/prod/data/uploads:/app/output
+      - /opt/tacelerar-winthor/prod/logs:/app/logs
+    networks: [net-tacelerar-winthor-prod]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    mem_limit: 512m
+    cpus: 0.5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: tacelerar-winthor-frontend:prod
+    container_name: tacelerar-winthor-prod-frontend
+    restart: unless-stopped
+    ports: ["127.0.0.1:3020:80"]
+    networks: [net-tacelerar-winthor-prod]
+    mem_limit: 64m
+    cpus: 0.1
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tacelerar-winthor-backend:prod
+    container_name: tacelerar-winthor-prod-celery-worker
+    restart: unless-stopped
+    env_file: .env
+    command: celery -A app.tasks worker --loglevel=info --concurrency=2 --app-dir /app/backend
+    volumes:
+      - /opt/tacelerar-winthor/prod/data/uploads:/app/output
+      - /opt/tacelerar-winthor/prod/logs:/app/logs
+    networks: [net-tacelerar-winthor-prod]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Este é o serviço que processa import grande — o candidato natural a
+    # consumir recurso demais se ficar sem teto (ver README).
+    mem_limit: 1g
+    cpus: 1.0
+
+networks:
+  net-tacelerar-winthor-prod:
+    driver: bridge

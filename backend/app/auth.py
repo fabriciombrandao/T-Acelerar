@@ -28,10 +28,10 @@ from sqlalchemy.orm import Session
 
 from app.db import User, get_db
 
-SECRET_KEY = os.environ.get("WINTHOR_JWT_SECRET")
+SECRET_KEY = os.environ.get("TACELERAR_JWT_SECRET")
 if not SECRET_KEY:
     # Só cai aqui em dev local. Em qualquer ambiente compartilhado, definir
-    # WINTHOR_JWT_SECRET é obrigatório (ver .env.example) — sem isso, tokens
+    # TACELERAR_JWT_SECRET é obrigatório (ver .env.example) — sem isso, tokens
     # emitidos antes de um restart do processo deixam de ser verificáveis
     # (e um secret previsível permite forjar token de diretor).
     SECRET_KEY = "dev-insecure-secret-troque-em-producao"
@@ -39,7 +39,7 @@ if not SECRET_KEY:
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 12  # 12h
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 _MAX_PASSWORD_BYTES = 72  # limite físico do bcrypt
 

@@ -1,17 +1,28 @@
-# Winthor Data Deploy — MVP
+# Winthor Data Deploy — módulo T-Acelerar
 
-Aplicação web local: **abrir projeto → subir arquivo → validar automaticamente →
-tratar exceções → gerar script de INSERT Oracle** para rodar manualmente no banco
-do cliente. O Winthor não expõe API — a carga é sempre via script SQL.
+Aplicação web: **abrir projeto → subir arquivo → validar automaticamente →
+tratar exceções → gerar arquivo de carga** (texto oficial Winthor ou SQL
+alternativo). Parte da plataforma T-Acelerar (acelerador de projetos de
+implantação) — este módulo específico cobre migração de dados pro Winthor.
 
-## Rodando
+## Rodando local (sem Docker, dev solo)
+
+Backend e frontend são containers separados em produção — local, sem
+Docker, roda os dois processos à parte:
 
 ```bash
+# Terminal 1 — backend
 pip install -r requirements.txt --break-system-packages
 PYTHONPATH=backend uvicorn app.api:app --reload
+
+# Terminal 2 — frontend (arquivo estático, qualquer servidor serve)
+cd frontend && python3 -m http.server 8080
 ```
 
-Abra `http://127.0.0.1:8000` no navegador. A própria API serve a interface.
+Abra `http://127.0.0.1:8080`. CORS já está liberado no backend pra esse
+cenário (ver comentário em `api.py`). Login/dados ficam em SQLite local
+(`tacelerar_winthor.db`) automaticamente — não precisa configurar nada
+pra esse modo.
 
 ## O que está implementado (real, testado — 21 testes)
 
@@ -43,9 +54,9 @@ a ser obrigatórios (não "melhoria futura"):
 1. **Autenticação** — sem isso, qualquer pessoa com a URL do VPS mexe em
    dado de cliente de qualquer projeto. Implementado (`app/auth.py`).
 2. **Postgres, não SQLite** — SQLite trava com escrita concorrente de vários
-   consultores ao mesmo tempo. `docker-compose.yml` já assume Postgres como
-   padrão para este perfil (SQLite continua sendo o default só para
-   desenvolvimento local sozinho).
+   consultores ao mesmo tempo. `docker-compose.{prod,dev,teste}.yml` já
+   assumem Postgres como padrão para este perfil (SQLite continua sendo o
+   default só para desenvolvimento local sozinho, sem Docker).
 
 ## Autenticação e hierarquia de acesso
 
@@ -62,25 +73,25 @@ coordenador acima e o diretor enxergam a equipe inteira.
 
 **Primeiro setup (uma vez só, por ambiente) — cria o primeiro DIRETOR:**
 ```bash
-curl -X POST http://localhost:8000/auth/bootstrap-admin \
+curl -X POST http://127.0.0.1:8020/api/auth/bootstrap-admin \
   -H "Content-Type: application/json" \
   -d '{"email":"diretor@empresa.com","name":"Fulano","password":"...",
-       "bootstrap_secret":"<WINTHOR_BOOTSTRAP_SECRET do .env>"}'
+       "bootstrap_secret":"<TACELERAR_BOOTSTRAP_SECRET do .env>"}'
 ```
 Esse endpoint só funciona **uma vez** — depois que existe qualquer usuário no
 banco, ele sempre retorna 409, mesmo com o secret certo.
 
-**Depois disso**, login normal (`POST /auth/login`, form `username`+`password`,
+**Depois disso**, login normal (`POST /api/auth/login`, form `username`+`password`,
 retorna JWT). O diretor cria coordenadores:
 ```bash
-curl -X POST http://localhost:8000/users -H "Authorization: Bearer <token-diretor>" \
+curl -X POST http://127.0.0.1:8020/api/users -H "Authorization: Bearer <token-diretor>" \
   -H "Content-Type: application/json" \
   -d '{"email":"coord@empresa.com","name":"Coordenador","password":"...","role":"coordenador"}'
 ```
 E cada coordenador cria os próprios analistas (não precisa de `manager_email`
 — vira automaticamente a equipe de quem criou):
 ```bash
-curl -X POST http://localhost:8000/users -H "Authorization: Bearer <token-coordenador>" \
+curl -X POST http://127.0.0.1:8020/api/users -H "Authorization: Bearer <token-coordenador>" \
   -H "Content-Type: application/json" \
   -d '{"email":"analista@empresa.com","name":"Analista","password":"...","role":"analista"}'
 ```
@@ -159,107 +170,164 @@ recomendado até validar o mapping SQL.
 
 ## API
 
+Todas as rotas de negócio ficam sob `/api` — nginx roteia `/api/*` pro
+container de backend e o resto (`/`) pro container de frontend (ver
+`deploy/nginx-servicos-*.conf`). `/health`, `/docs`, `/redoc` e
+`/openapi.json` ficam fora do prefixo `/api` de propósito, igual ao
+padrão TNORTEANDO — são rotas de infraestrutura/introspecção, não de
+negócio.
+
 | Rota | Método | O que faz |
 |---|---|---|
-| `/auth/bootstrap-admin` | POST | Cria o primeiro admin (só funciona uma vez) |
-| `/auth/login` | POST (form) | Login, retorna JWT |
-| `/auth/me` | GET | Dados do usuário autenticado |
-| `/users` | POST / GET | Admin cria/lista consultores |
-| `/projects` | POST / GET | Cria/lista projetos |
-| `/projects/{id}/imports` | GET | Lotes de um projeto |
-| `/imports` | POST (multipart: `project_id` + `file`) | Roda pipeline, persiste lote |
-| `/imports/{id}/report` | GET | KPIs do lote |
-| `/imports/{id}/products` | GET | Produtos do lote |
-| `/exceptions?batch_id=&status=` | GET | Exception Queue |
-| `/exceptions/{id}/resolve` | POST | Aprova/rejeita exceção |
-| `/imports/{id}/readiness` | GET | Gate: há BLOCKER pendente? |
-| `/imports/{id}/script?format=texto\|sql` | GET | Gera e baixa o arquivo de carga |
+| `/health` | GET | Healthcheck (sem auth) — usado pelo Docker |
+| `/api/auth/bootstrap-admin` | POST | Cria o primeiro diretor (só funciona uma vez) |
+| `/api/auth/login` | POST (form) | Login, retorna JWT |
+| `/api/auth/me` | GET | Dados do usuário autenticado |
+| `/api/users` | POST / GET | Diretor/coordenador cria/lista pessoas da equipe |
+| `/api/projects` | POST / GET | Cria/lista projetos |
+| `/api/projects/{id}/imports` | GET | Lotes de um projeto |
+| `/api/imports` | POST (multipart: `project_id` + `file`) | Sobe arquivo, dispara processamento |
+| `/api/imports/{id}` | GET | Status do lote (polling: PENDING/PROCESSING/DONE/FAILED) |
+| `/api/imports/{id}/report` | GET | KPIs do lote |
+| `/api/imports/{id}/products` | GET | Produtos do lote (paginado) |
+| `/api/exceptions?batch_id=&status=&limit=&offset=` | GET | Exception Queue (paginado) |
+| `/api/exceptions/{id}/resolve` | POST | Aprova/rejeita exceção |
+| `/api/imports/{id}/readiness` | GET | Gate: há BLOCKER pendente? |
+| `/api/imports/{id}/script?format=texto\|sql` | GET | Gera e baixa o arquivo de carga |
 
-Todas as rotas acima (exceto `/auth/login` e `/auth/bootstrap-admin`) exigem
-`Authorization: Bearer <token>`.
+Todas as rotas `/api/*` acima (exceto `/api/auth/login` e
+`/api/auth/bootstrap-admin`) exigem `Authorization: Bearer <token>`.
 
-Banco default é SQLite local (`winthor_data_deploy.db`) — só para dev solo.
-Em qualquer ambiente com mais de uma pessoa, usar Postgres via `WINTHOR_DB_URL`
-(`docker-compose.yml` já vem configurado assim).
+Banco default é SQLite local (`tacelerar_winthor.db`) — só para dev solo,
+sem Docker. Em qualquer ambiente com mais de uma pessoa, usar Postgres via
+`TACELERAR_DB_URL` (`docker-compose.{prod,dev,teste}.yml` já vêm configurados assim).
 
 ## Deploy
 
-### ⚠️ Ambiente compartilhado — este VPS roda o TNORTEANDO (produção)
+### Estrutura: 3 ambientes, padrão TNORTEANDO
 
-Diagnóstico medido neste VPS (4 núcleos, 15GB RAM, TNORTEANDO rodando 3
-ambientes — prod/dev/teste, 18 containers, ociosos em ~18% de 1 núcleo em
-uso normal): RAM e disco estão folgados (9,8GB e 178GB livres), **CPU é o
-recurso apertado** — só 4 núcleos no total pra tudo que já roda mais o que
-está subindo agora.
+Este VPS já roda o TNORTEANDO com 3 ambientes completos (prod/dev/teste),
+cada um em seu próprio checkout git, container/rede/volume nomeados
+explicitamente. Seguimos exatamente essa convenção — **não** um único
+compose com profiles.
 
-Os limites em `.env.example`/`docker-compose.yml` já refletem isso:
-`APP_CPU_LIMIT=0.5`, `WORKER_CPU_LIMIT=1.0`, `DB_CPU_LIMIT=0.5`, Redis
-fixo em `0.25` — total **2,25 núcleos reservados no pior caso**, deixando
-1,75 núcleo (43%) de folga mesmo se minha stack inteira bater o teto ao
-mesmo tempo. Se um import grande parecer lento, é a `cpus` do `worker`
-fazendo esse trabalho de propósito — a alternativa (sem teto) é mais
-rápido às custas de risco pro TNORTEANDO, e essa troca não vale a pena.
-
-Antes de qualquer `docker compose up`, meça de novo se o cenário mudou
-desde a última checagem:
-
-```bash
-free -h                    # RAM livre
-df -h                       # disco livre (atenção à partição onde fica /var/lib/docker)
-docker ps                   # confirma o que já está rodando e não deve ser tocado
-docker system df            # espaço já usado por imagens/volumes existentes
-sudo ss -tlnp | grep LISTEN # portas já ocupadas
+```
+/opt/tacelerar-winthor/
+├── prod/    (checkout git próprio + .env próprio)
+├── dev/     (checkout git próprio + .env próprio)
+└── teste/   (checkout git próprio + .env próprio)
 ```
 
-O projeto Compose tem nome explícito (`name: winthor-data-deploy` no topo
-do `docker-compose.yml`) — isso significa que `docker compose down`,
-`docker compose ps`, etc. rodados de dentro desta pasta **só enxergam os
-containers desta stack**, nunca os do TNORTEANDO, mesmo que ambos usem
-Docker Compose no mesmo host. Ainda assim: nunca rode `docker system
-prune` sem `--filter` neste VPS — isso limpa recurso não usado *de
-qualquer stack*, TNORTEANDO incluído.
+Cada ambiente é um `git clone` separado do mesmo repositório — não é
+symlink nem worktree, é uma cópia própria, exatamente como o TNORTEANDO
+está montado hoje. Isso evita qualquer risco de um `.env` vazar pra
+ambiente errado.
 
-Se algo der errado e precisar reverter rápido:
+### Nomenclatura (mesmo padrão deles)
+
+| | Deles (referência) | Nosso |
+|---|---|---|
+| Diretório | `/opt/tnorteando/{env}/` | `/opt/tacelerar-winthor/{env}/` |
+| Compose project | `tnorteando-{env}` | `tacelerar-winthor-{env}` |
+| Container | `tnorteando-{env}-backend` | `tacelerar-winthor-{env}-backend` |
+| Rede | `net-tnorteando-{env}` | `net-tacelerar-winthor-{env}` |
+| Porta backend (127.0.0.1 só) | 8010/8011/8012 | **8020/8021/8022** (prod/dev/teste) |
+| Porta frontend (127.0.0.1 só) | 3010/3011/3012 | **3020/3021/3022** (prod/dev/teste) |
+| Domínio | `tnorteando.com.br` / `desenv....` / `teste....` | `servicos.tnorteando.com.br` / `desenv.servicos....` / `teste.servicos....` |
+
+Sem `celery-beat` do nosso lado — não temos tarefa agendada/periódica, só
+processamento sob demanda (import de arquivo).
+
+### Passo a passo, por ambiente (repetir 3x, trocando `prod` por `dev`/`teste`)
+
+**1. Checkout:**
 ```bash
-docker compose -p winthor-data-deploy down   # para só esta stack, nada mais
+sudo mkdir -p /opt/tacelerar-winthor
+cd /opt/tacelerar-winthor
+sudo git clone https://github.com/fabriciombrandao/TOTVS-Acelerador-WINTHOR.git prod
+cd prod
 ```
 
-### Opção A — Docker (recomendado para VPS compartilhado)
+**2. Criar diretórios de dado (bind mount, não volume nomeado — igual ao padrão deles, mais fácil de inspecionar/backupar):**
+```bash
+sudo mkdir -p /opt/tacelerar-winthor/prod/data/{postgres,redis,uploads}
+sudo mkdir -p /opt/tacelerar-winthor/prod/logs
+```
 
+**3. Configurar `.env`:**
 ```bash
 cp .env.example .env
-# edite o .env: POSTGRES_PASSWORD, WINTHOR_JWT_SECRET, WINTHOR_BOOTSTRAP_SECRET
-docker compose up -d --build
-# depois de subir, rode o bootstrap-admin (ver seção Autenticação acima)
+nano .env
+```
+Preencher: `POSTGRES_PASSWORD`, `TACELERAR_DB_URL` (mesma senha, duplicada —
+ver comentário no `.env.example` explicando por quê), `TACELERAR_JWT_SECRET`
+e `TACELERAR_BOOTSTRAP_SECRET` (gerar com `python3 -c "import secrets; print(secrets.token_hex(32))"`).
+Trocar `POSTGRES_DB`/nome do banco por ambiente (ex: `tacelerar_winthor_dev`)
+pra evitar qualquer ambiguidade, mesmo já estando em diretório/rede isolados.
+
+**4. Subir:**
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Sobe em `http://<ip-do-vps>:8000`. Postgres roda em container separado
-(`db`), com volume próprio — dado sobrevive a rebuild da app. Coloque um
-nginx/Caddy na frente para TLS (ver `deploy/nginx.conf` como referência,
-mesmo usando Docker) — **HTTPS não é opcional** quando login/senha trafegam
-pela rede.
-
-### Opção B — VPS sem Docker (systemd + nginx)
-
+**5. Confirmar saúde:**
 ```bash
-git clone <repo> /opt/winthor-data-deploy
-cd /opt/winthor-data-deploy
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-# edite o .env: WINTHOR_DB_URL (Postgres), WINTHOR_JWT_SECRET, WINTHOR_BOOTSTRAP_SECRET
+docker compose -f docker-compose.prod.yml ps
+curl http://127.0.0.1:8020/health
+```
 
-sudo cp deploy/winthor-data-deploy.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now winthor-data-deploy
+**6. Criar o primeiro DIRETOR** (uma vez por ambiente — cada ambiente tem seu próprio banco de usuários):
+```bash
+curl -X POST http://127.0.0.1:8020/api/auth/bootstrap-admin \
+  -H "Content-Type: application/json" \
+  -d '{"email":"voce@totvs.com","name":"Seu Nome","password":"...",
+       "bootstrap_secret":"<o TACELERAR_BOOTSTRAP_SECRET deste .env>"}'
+```
 
-sudo cp deploy/nginx.conf /etc/nginx/sites-available/winthor-data-deploy
-sudo ln -s /etc/nginx/sites-available/winthor-data-deploy /etc/nginx/sites-enabled/
+**7. nginx (host, fora do Docker — igual ao padrão deles):**
+```bash
+sudo cp deploy/nginx-servicos-prod.conf /etc/nginx/sites-available/tacelerar-winthor-prod
+sudo ln -s /etc/nginx/sites-available/tacelerar-winthor-prod /etc/nginx/sites-enabled/
+sudo certbot --nginx -d servicos.tnorteando.com.br
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-Atualizações depois disso: `./deploy/deploy.sh` (pull + reinstala deps + roda testes +
-reinicia serviço; não reinicia se os testes quebrarem).
+Repetir os 7 passos pra `dev` (`docker-compose.dev.yml`, portas 8021/3021,
+domínio `desenv.servicos.tnorteando.com.br`) e `teste` (`docker-compose.teste.yml`,
+portas 8022/3022, domínio `teste.servicos.tnorteando.com.br`).
+
+### ⚠️ Orçamento de CPU — 4 núcleos não sobram muito com 6 ambientes no total
+
+VPS medido: **4 núcleos**, TNORTEANDO já roda 3 ambientes completos (18
+containers, ocioso em ~18% de 1 núcleo em uso normal, mas com pico
+observado de 2,7GB RAM no worker de produção deles — picos reais
+acontecem). Nossos 3 ambientes somados, no pior caso de CPU (tudo no teto
+ao mesmo tempo):
+
+| Ambiente | db | redis | backend | frontend | worker | **total** |
+|---|---|---|---|---|---|---|
+| prod | 0.5 | 0.25 | 0.5 | 0.1 | 1.0 | **2.35** |
+| dev | 0.15 | 0.1 | 0.25 | 0.05 | 0.25 | **0.8** |
+| teste | 0.15 | 0.1 | 0.25 | 0.05 | 0.25 | **0.8** |
+| | | | | | **soma** | **3.95 de 4 núcleos** |
+
+Isso é **quase a máquina inteira**, considerando só a nossa stack, num VPS
+que também roda o TNORTEANDO. Os limites por container impedem qualquer
+um sozinho de consumir mais que o combinado, mas não existe mágica: se
+prod, dev e teste estiverem todos processando algo pesado ao mesmo tempo
+*e* o TNORTEANDO tiver pico simultâneo, todo mundo fica mais lento
+(contenção de CPU é dividida de forma justa pelo kernel, não trava nem
+derruba nada sozinho — mas degrada).
+
+**Recomendação prática**: manter só **prod rodando 24/7**. Deixar dev/teste
+parados quando não estiverem em uso ativo de teste:
+```bash
+docker compose -f docker-compose.dev.yml stop
+docker compose -f docker-compose.teste.yml stop
+```
+E subir de novo só na hora de testar (`up -d`, sem `--build` se a imagem
+já existir). Isso reduz o custo real do dia a dia pra só os 2,35 núcleos
+do prod — bem mais folgado ao lado do TNORTEANDO.
 
 ### CI
 

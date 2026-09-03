@@ -1,0 +1,102 @@
+name: tacelerar-winthor-teste
+
+# Ambiente de TESTE. Mesma estrutura do prod, recurso bem mais baixo
+# de proposito -- este ambiente nao processa volume grande, e so validacao.
+# Se nao estiver em uso ativo, prefira "docker compose -f docker-compose.teste.yml stop"
+# em vez de deixar rodando 24/7 (ver README, orcamento de CPU do VPS).
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: tacelerar-winthor-teste-db
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - /opt/tacelerar-winthor/teste/data/postgres:/var/lib/postgresql/data
+    networks: [net-tacelerar-winthor-teste]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 256m
+    cpus: 0.15
+
+  redis:
+    image: redis:7-alpine
+    container_name: tacelerar-winthor-teste-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 100mb --maxmemory-policy allkeys-lru
+    volumes:
+      - /opt/tacelerar-winthor/teste/data/redis:/data
+    networks: [net-tacelerar-winthor-teste]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+    mem_limit: 128m
+    cpus: 0.1
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tacelerar-winthor-backend:teste
+    container_name: tacelerar-winthor-teste-backend
+    restart: unless-stopped
+    env_file: .env
+    ports: ["127.0.0.1:8022:8000"]
+    volumes:
+      - /opt/tacelerar-winthor/teste/data/uploads:/app/output
+      - /opt/tacelerar-winthor/teste/logs:/app/logs
+    networks: [net-tacelerar-winthor-teste]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen(\x27http://localhost:8000/health\x27)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    mem_limit: 256m
+    cpus: 0.25
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: tacelerar-winthor-frontend:teste
+    container_name: tacelerar-winthor-teste-frontend
+    restart: unless-stopped
+    ports: ["127.0.0.1:3022:80"]
+    networks: [net-tacelerar-winthor-teste]
+    mem_limit: 32m
+    cpus: 0.05
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tacelerar-winthor-backend:teste
+    container_name: tacelerar-winthor-teste-celery-worker
+    restart: unless-stopped
+    env_file: .env
+    command: celery -A app.tasks worker --loglevel=info --concurrency=1 --app-dir /app/backend
+    volumes:
+      - /opt/tacelerar-winthor/teste/data/uploads:/app/output
+      - /opt/tacelerar-winthor/teste/logs:/app/logs
+    networks: [net-tacelerar-winthor-teste]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 384m
+    cpus: 0.25
+
+networks:
+  net-tacelerar-winthor-teste:
+    driver: bridge

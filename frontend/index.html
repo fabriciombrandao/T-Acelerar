@@ -543,6 +543,12 @@
 
 <script>
 var API = {
+  // Backend agora é container separado do frontend (nginx roteia /api/*
+  // pro backend e o resto pro frontend — padrão do time, ver
+  // deploy/nginx-*.conf). Toda chamada de API passa por aqui, então o
+  // prefixo fica centralizado num lugar só.
+  prefix: '/api',
+
   request: function(path, opts) {
     opts = opts || {};
     var method = opts.method || 'GET';
@@ -558,7 +564,7 @@ var API = {
     if (json) { finalHeaders['Content-Type'] = 'application/json'; body = JSON.stringify(json); }
     if (form) { body = form; }
 
-    return fetch(path, { method: method, headers: finalHeaders, body: body }).then(function(resp) {
+    return fetch(this.prefix + path, { method: method, headers: finalHeaders, body: body }).then(function(resp) {
       if (resp.status === 401) {
         var err = new Error('Sessao expirada.');
         err.unauthorized = true;
@@ -632,7 +638,7 @@ function app() {
       var form = new URLSearchParams();
       form.append('username', this.loginForm.email);
       form.append('password', this.loginForm.password);
-      return fetch('/auth/login', {
+      return fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: form,
@@ -869,7 +875,7 @@ function app() {
 
     generateScript: function() {
       var self = this;
-      return fetch('/imports/' + this.currentBatch.id + '/script?format=' + this.scriptFormat, {
+      return fetch('/api/imports/' + this.currentBatch.id + '/script?format=' + this.scriptFormat, {
         headers: { Authorization: 'Bearer ' + this.token },
       }).then(function(resp) {
         if (!resp.ok) {

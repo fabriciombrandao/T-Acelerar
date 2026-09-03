@@ -14,8 +14,8 @@ def client(tmp_path, monkeypatch):
     """Cada teste roda com um banco SQLite isolado, um admin bootstrap já
     criado, e o TestClient já autenticado (headers persistem entre chamadas)."""
     db_file = tmp_path / f"test_{uuid.uuid4().hex}.db"
-    monkeypatch.setenv("WINTHOR_DB_URL", f"sqlite:///{db_file}")
-    monkeypatch.setenv("WINTHOR_BOOTSTRAP_SECRET", "test-secret")
+    monkeypatch.setenv("TACELERAR_DB_URL", f"sqlite:///{db_file}")
+    monkeypatch.setenv("TACELERAR_BOOTSTRAP_SECRET", "test-secret")
 
     for mod in ["app.db", "app.auth", "app.repository", "app.api"]:
         sys.modules.pop(mod, None)
@@ -24,11 +24,11 @@ def client(tmp_path, monkeypatch):
     import app.api as api_module
 
     with TestClient(api_module.app) as c:
-        c.post("/auth/bootstrap-admin", json={
+        c.post("/api/auth/bootstrap-admin", json={
             "email": "admin@teste.com", "name": "Admin Teste",
             "password": "senha-forte-123", "bootstrap_secret": "test-secret",
         })
-        token = c.post("/auth/login", data={
+        token = c.post("/api/auth/login", data={
             "username": "admin@teste.com", "password": "senha-forte-123",
         }).json()["access_token"]
         c.headers.update({"Authorization": f"Bearer {token}"})
@@ -36,7 +36,7 @@ def client(tmp_path, monkeypatch):
 
 
 def _create_project(client, name="Cliente Teste"):
-    resp = client.post("/projects", json={"name": name})
+    resp = client.post("/api/projects", json={"name": name})
     assert resp.status_code == 200
     return resp.json()["id"]
 
@@ -44,14 +44,14 @@ def _create_project(client, name="Cliente Teste"):
 def _upload_sample(client, project_id):
     with SAMPLE_CSV.open("rb") as f:
         return client.post(
-            "/imports",
+            "/api/imports",
             data={"project_id": project_id},
             files={"file": ("produtos_exemplo.csv", f, "text/csv")},
         )
 
 
 def test_create_project(client):
-    resp = client.post("/projects", json={"name": "Distribuidora Norte"})
+    resp = client.post("/api/projects", json={"name": "Distribuidora Norte"})
     assert resp.status_code == 200
     assert resp.json()["name"] == "Distribuidora Norte"
 
@@ -59,7 +59,7 @@ def test_create_project(client):
 def test_import_requires_valid_project(client):
     with SAMPLE_CSV.open("rb") as f:
         resp = client.post(
-            "/imports",
+            "/api/imports",
             data={"project_id": "inexistente"},
             files={"file": ("produtos_exemplo.csv", f, "text/csv")},
         )
@@ -89,7 +89,7 @@ def test_get_import_status_endpoint_reflects_current_state(client):
     project_id = _create_project(client)
     batch = _upload_sample(client, project_id).json()
 
-    resp = client.get(f"/imports/{batch['id']}")
+    resp = client.get(f"/api/imports/{batch['id']}")
     assert resp.status_code == 200
     assert resp.json()["status"] == "DONE"
     assert resp.json()["total_records"] == 7
@@ -113,14 +113,14 @@ def test_import_batch_marked_failed_on_pipeline_error(client, monkeypatch):
     # Modo eager propaga a exceção da task pra dentro da própria requisição.
     with pytest.raises(Exception):
         client.post(
-            "/imports", data={"project_id": project_id},
+            "/api/imports", data={"project_id": project_id},
             files={"file": ("bogus.csv", fake_csv, "text/csv")},
         )
 
     # O lote foi criado (PENDING) antes de disparar a task, então mesmo com
     # a exceção o registro existe — e mark_batch_failed já commitou FAILED
     # antes de a exceção subir.
-    batches = client.get(f"/projects/{project_id}/imports").json()
+    batches = client.get(f"/api/projects/{project_id}/imports").json()
     assert len(batches) == 1
     assert batches[0]["status"] == "FAILED"
     assert "arquivo corrompido" in (batches[0]["error_message"] or "")
@@ -129,7 +129,7 @@ def test_import_batch_marked_failed_on_pipeline_error(client, monkeypatch):
 def test_list_project_imports(client):
     project_id = _create_project(client)
     _upload_sample(client, project_id)
-    resp = client.get(f"/projects/{project_id}/imports")
+    resp = client.get(f"/api/projects/{project_id}/imports")
     assert resp.status_code == 200
     assert len(resp.json()) == 1
 
@@ -137,7 +137,7 @@ def test_list_project_imports(client):
 def test_list_exceptions_defaults_to_all_pending(client):
     project_id = _create_project(client)
     _upload_sample(client, project_id)
-    resp = client.get("/exceptions", params={"status": "PENDING"})
+    resp = client.get("/api/exceptions", params={"status": "PENDING"})
     exceptions = resp.json()
     assert len(exceptions) > 0
     assert all(e["resolution_status"] == "PENDING" for e in exceptions)
@@ -146,11 +146,11 @@ def test_list_exceptions_defaults_to_all_pending(client):
 def test_resolve_exception_updates_status(client):
     project_id = _create_project(client)
     _upload_sample(client, project_id)
-    exceptions = client.get("/exceptions").json()
+    exceptions = client.get("/api/exceptions").json()
     target = exceptions[0]
 
     resp = client.post(
-        f"/exceptions/{target['id']}/resolve",
+        f"/api/exceptions/{target['id']}/resolve",
         json={"decision": "APPROVED", "note": "ok"},
     )
     assert resp.status_code == 200
@@ -164,21 +164,21 @@ def test_readiness_gate_blocks_on_pending_blocker(client):
     batch = _upload_sample(client, project_id).json()
     batch_id = batch["id"]
 
-    gate_before = client.get(f"/imports/{batch_id}/readiness").json()
+    gate_before = client.get(f"/api/imports/{batch_id}/readiness").json()
     assert gate_before["ready_for_dry_run"] is False
     assert gate_before["pending_blockers"] >= 1
 
     blockers = client.get(
-        "/exceptions", params={"batch_id": batch_id, "status": "PENDING"}
+        "/api/exceptions", params={"batch_id": batch_id, "status": "PENDING"}
     ).json()
     for e in blockers:
         if e["severity"] == "BLOCKER":
             client.post(
-                f"/exceptions/{e['id']}/resolve",
+                f"/api/exceptions/{e['id']}/resolve",
                 json={"decision": "APPROVED"},
             )
 
-    gate_after = client.get(f"/imports/{batch_id}/readiness").json()
+    gate_after = client.get(f"/api/imports/{batch_id}/readiness").json()
     assert gate_after["ready_for_dry_run"] is True
     assert gate_after["pending_blockers"] == 0
 
@@ -186,7 +186,7 @@ def test_readiness_gate_blocks_on_pending_blocker(client):
 def test_generate_script_blocked_while_pending_blocker(client):
     project_id = _create_project(client)
     batch = _upload_sample(client, project_id).json()
-    resp = client.get(f"/imports/{batch['id']}/script")
+    resp = client.get(f"/api/imports/{batch['id']}/script")
     assert resp.status_code == 409
 
 
@@ -196,16 +196,16 @@ def test_generate_script_defaults_to_texto_format(client):
     batch_id = batch["id"]
 
     blockers = client.get(
-        "/exceptions", params={"batch_id": batch_id, "status": "PENDING"}
+        "/api/exceptions", params={"batch_id": batch_id, "status": "PENDING"}
     ).json()
     for e in blockers:
         if e["severity"] == "BLOCKER":
             client.post(
-                f"/exceptions/{e['id']}/resolve",
+                f"/api/exceptions/{e['id']}/resolve",
                 json={"decision": "APPROVED"},
             )
 
-    resp = client.get(f"/imports/{batch_id}/script")
+    resp = client.get(f"/api/imports/{batch_id}/script")
     assert resp.status_code == 200
     assert resp.headers["X-Format"] == "texto"
     assert resp.headers["content-type"].startswith("text/plain")
@@ -217,16 +217,16 @@ def test_generate_script_sql_format_still_available(client):
     batch_id = batch["id"]
 
     blockers = client.get(
-        "/exceptions", params={"batch_id": batch_id, "status": "PENDING"}
+        "/api/exceptions", params={"batch_id": batch_id, "status": "PENDING"}
     ).json()
     for e in blockers:
         if e["severity"] == "BLOCKER":
             client.post(
-                f"/exceptions/{e['id']}/resolve",
+                f"/api/exceptions/{e['id']}/resolve",
                 json={"decision": "APPROVED"},
             )
 
-    resp = client.get(f"/imports/{batch_id}/script", params={"format": "sql"})
+    resp = client.get(f"/api/imports/{batch_id}/script", params={"format": "sql"})
     assert resp.status_code == 200
     assert "INSERT INTO PCPRODUT" in resp.text
     assert resp.text.strip().endswith("COMMIT;")
@@ -236,7 +236,7 @@ def test_generate_script_sql_format_still_available(client):
 def test_generate_script_invalid_format_returns_400(client):
     project_id = _create_project(client)
     batch = _upload_sample(client, project_id).json()
-    resp = client.get(f"/imports/{batch['id']}/script", params={"format": "xml"})
+    resp = client.get(f"/api/imports/{batch['id']}/script", params={"format": "xml"})
     assert resp.status_code == 400
 
 
@@ -246,7 +246,7 @@ def test_generate_script_excludes_rejected_records(client):
     batch_id = batch["id"]
 
     pending = client.get(
-        "/exceptions", params={"batch_id": batch_id, "status": "PENDING"}
+        "/api/exceptions", params={"batch_id": batch_id, "status": "PENDING"}
     ).json()
 
     blocker_record_id = None
@@ -255,11 +255,11 @@ def test_generate_script_excludes_rejected_records(client):
         if e["severity"] == "BLOCKER":
             blocker_record_id = e["record_id"]
         client.post(
-            f"/exceptions/{e['id']}/resolve",
+            f"/api/exceptions/{e['id']}/resolve",
             json={"decision": decision},
         )
 
-    resp = client.get(f"/imports/{batch_id}/script", params={"format": "sql"})
+    resp = client.get(f"/api/imports/{batch_id}/script", params={"format": "sql"})
     assert resp.status_code == 200
     assert int(resp.headers["X-Records-Skipped"]) >= 1
     assert f"'{blocker_record_id}'" not in resp.text
@@ -268,14 +268,14 @@ def test_generate_script_excludes_rejected_records(client):
 # ---------- Wizard de aderência ----------
 
 def test_get_segments_returns_config(client):
-    resp = client.get("/adherence/segments")
+    resp = client.get("/api/adherence/segments")
     assert resp.status_code == 200
     ids = {s["id"] for s in resp.json()["segmentos"]}
     assert {"distribuicao", "varejo"} <= ids
 
 
 def test_get_modules_returns_config(client):
-    resp = client.get("/adherence/modules")
+    resp = client.get("/api/adherence/modules")
     assert resp.status_code == 200
     ids = {m["id"] for m in resp.json()["modulos"]}
     assert "enderecamento" in ids
@@ -284,7 +284,7 @@ def test_get_modules_returns_config(client):
 def test_set_adherence_applies_preset(client):
     project_id = _create_project(client)
     resp = client.post(
-        f"/projects/{project_id}/adherence",
+        f"/api/projects/{project_id}/adherence",
         json={"segment": "varejo", "subsegment": "loja_unica"},
     )
     assert resp.status_code == 200
@@ -296,7 +296,7 @@ def test_set_adherence_applies_preset(client):
 def test_set_adherence_with_override_beats_preset(client):
     project_id = _create_project(client)
     resp = client.post(
-        f"/projects/{project_id}/adherence",
+        f"/api/projects/{project_id}/adherence",
         json={
             "segment": "varejo", "subsegment": "loja_unica",
             "overrides": {"enderecamento": True},
@@ -310,10 +310,10 @@ def test_set_adherence_with_override_beats_preset(client):
 def test_get_adherence_after_set_persists(client):
     project_id = _create_project(client)
     client.post(
-        f"/projects/{project_id}/adherence",
+        f"/api/projects/{project_id}/adherence",
         json={"segment": "distribuicao", "subsegment": "distribuidor_fmcg"},
     )
-    resp = client.get(f"/projects/{project_id}/adherence")
+    resp = client.get(f"/api/projects/{project_id}/adherence")
     body = resp.json()
     assert body["segment"] == "distribuicao"
     assert body["subsegment"] == "distribuidor_fmcg"
@@ -323,7 +323,7 @@ def test_get_adherence_after_set_persists(client):
 def test_set_adherence_invalid_subsegment_returns_400(client):
     project_id = _create_project(client)
     resp = client.post(
-        f"/projects/{project_id}/adherence",
+        f"/api/projects/{project_id}/adherence",
         json={"segment": "distribuicao", "subsegment": "nao_existe"},
     )
     assert resp.status_code == 400

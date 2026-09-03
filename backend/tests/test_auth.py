@@ -13,8 +13,8 @@ SAMPLE_CSV = Path(__file__).parent.parent.parent / "sample_data" / "produtos_exe
 def raw_client(tmp_path, monkeypatch):
     """Cliente SEM bootstrap/login automático — para testar o próprio fluxo de auth."""
     db_file = tmp_path / f"test_{uuid.uuid4().hex}.db"
-    monkeypatch.setenv("WINTHOR_DB_URL", f"sqlite:///{db_file}")
-    monkeypatch.setenv("WINTHOR_BOOTSTRAP_SECRET", "test-secret")
+    monkeypatch.setenv("TACELERAR_DB_URL", f"sqlite:///{db_file}")
+    monkeypatch.setenv("TACELERAR_BOOTSTRAP_SECRET", "test-secret")
 
     for mod in ["app.db", "app.auth", "app.repository", "app.api"]:
         sys.modules.pop(mod, None)
@@ -27,14 +27,14 @@ def raw_client(tmp_path, monkeypatch):
 
 
 def _bootstrap(client, email="diretor@teste.com", secret="test-secret"):
-    return client.post("/auth/bootstrap-admin", json={
+    return client.post("/api/auth/bootstrap-admin", json={
         "email": email, "name": "Diretor", "password": "senha-forte-123",
         "bootstrap_secret": secret,
     })
 
 
 def _login(client, email, password="senha-forte-123"):
-    token = client.post("/auth/login", data={
+    token = client.post("/api/auth/login", data={
         "username": email, "password": password,
     }).json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
@@ -44,14 +44,14 @@ def _create_user(client, actor_headers, email, role, manager_email=None, name="U
     payload = {"email": email, "name": name, "password": "senha-forte-123", "role": role}
     if manager_email:
         payload["manager_email"] = manager_email
-    resp = client.post("/users", headers=actor_headers, json=payload)
+    resp = client.post("/api/users", headers=actor_headers, json=payload)
     return resp
 
 
 def _upload_sample(client, headers, project_id):
     with SAMPLE_CSV.open("rb") as f:
         return client.post(
-            "/imports", headers=headers, data={"project_id": project_id},
+            "/api/imports", headers=headers, data={"project_id": project_id},
             files={"file": ("produtos_exemplo.csv", f, "text/csv")},
         )
 
@@ -59,7 +59,7 @@ def _upload_sample(client, headers, project_id):
 # ---------- Fluxo básico de autenticação ----------
 
 def test_protected_endpoint_requires_token(raw_client):
-    resp = raw_client.get("/projects")
+    resp = raw_client.get("/api/projects")
     assert resp.status_code == 401
 
 
@@ -82,7 +82,7 @@ def test_bootstrap_admin_only_works_once(raw_client):
 
 def test_login_with_correct_credentials_returns_token(raw_client):
     _bootstrap(raw_client)
-    resp = raw_client.post("/auth/login", data={
+    resp = raw_client.post("/api/auth/login", data={
         "username": "diretor@teste.com", "password": "senha-forte-123",
     })
     assert resp.status_code == 200
@@ -91,14 +91,14 @@ def test_login_with_correct_credentials_returns_token(raw_client):
 
 def test_login_with_wrong_password_fails(raw_client):
     _bootstrap(raw_client)
-    resp = raw_client.post("/auth/login", data={
+    resp = raw_client.post("/api/auth/login", data={
         "username": "diretor@teste.com", "password": "senha-errada",
     })
     assert resp.status_code == 401
 
 
 def test_invalid_token_rejected(raw_client):
-    resp = raw_client.get("/projects", headers={"Authorization": "Bearer token-invalido"})
+    resp = raw_client.get("/api/projects", headers={"Authorization": "Bearer token-invalido"})
     assert resp.status_code == 401
 
 
@@ -107,15 +107,15 @@ def test_resolve_exception_records_authenticated_user_not_client_input(raw_clien
     _bootstrap(raw_client, email="real.consultor@teste.com")
     headers = _login(raw_client, "real.consultor@teste.com")
 
-    project_id = raw_client.post("/projects", headers=headers, json={"name": "P"}).json()["id"]
+    project_id = raw_client.post("/api/projects", headers=headers, json={"name": "P"}).json()["id"]
     batch = _upload_sample(raw_client, headers, project_id).json()
 
-    exceptions = raw_client.get("/exceptions", headers=headers,
+    exceptions = raw_client.get("/api/exceptions", headers=headers,
                                  params={"batch_id": batch["id"]}).json()
     target = exceptions[0]
 
     resp = raw_client.post(
-        f"/exceptions/{target['id']}/resolve", headers=headers,
+        f"/api/exceptions/{target['id']}/resolve", headers=headers,
         json={"decision": "APPROVED", "resolved_by": "nome-forjado-qualquer"},
     )
     body = resp.json()
@@ -194,7 +194,7 @@ def test_analista_can_use_normal_endpoints(raw_client):
     _create_user(raw_client, coord, "analista1@teste.com", "analista")
     analista = _login(raw_client, "analista1@teste.com")
 
-    resp = raw_client.post("/projects", headers=analista, json={"name": "Projeto"})
+    resp = raw_client.post("/api/projects", headers=analista, json={"name": "Projeto"})
     assert resp.status_code == 200
 
 
@@ -219,31 +219,31 @@ def _setup_two_teams(raw_client):
 
 def test_diretor_sees_all_projects(raw_client):
     headers = _setup_two_teams(raw_client)
-    p = raw_client.post("/projects", headers=headers["analista_a1"],
+    p = raw_client.post("/api/projects", headers=headers["analista_a1"],
                          json={"name": "Cliente A"}).json()
 
-    lista = raw_client.get("/projects", headers=headers["diretor"]).json()
+    lista = raw_client.get("/api/projects", headers=headers["diretor"]).json()
     assert p["id"] in [x["id"] for x in lista]
 
 
 def test_coordenador_sees_own_teams_project(raw_client):
     headers = _setup_two_teams(raw_client)
-    p = raw_client.post("/projects", headers=headers["analista_a1"],
+    p = raw_client.post("/api/projects", headers=headers["analista_a1"],
                          json={"name": "Cliente A"}).json()
 
-    lista = raw_client.get("/projects", headers=headers["coord_a"]).json()
+    lista = raw_client.get("/api/projects", headers=headers["coord_a"]).json()
     assert p["id"] in [x["id"] for x in lista]
 
 
 def test_coordenador_cannot_see_other_teams_project(raw_client):
     headers = _setup_two_teams(raw_client)
-    p = raw_client.post("/projects", headers=headers["analista_a1"],
+    p = raw_client.post("/api/projects", headers=headers["analista_a1"],
                          json={"name": "Cliente A"}).json()
 
-    lista = raw_client.get("/projects", headers=headers["coord_b"]).json()
+    lista = raw_client.get("/api/projects", headers=headers["coord_b"]).json()
     assert p["id"] not in [x["id"] for x in lista]
 
-    resp = raw_client.get(f"/projects/{p['id']}/imports", headers=headers["coord_b"])
+    resp = raw_client.get(f"/api/projects/{p['id']}/imports", headers=headers["coord_b"])
     assert resp.status_code == 403
 
 
@@ -253,24 +253,24 @@ def test_analista_cannot_see_peer_analista_project_same_team(raw_client):
     _create_user(raw_client, headers["coord_a"], "analista_a2@teste.com", "analista")
     analista_a2 = _login(raw_client, "analista_a2@teste.com")
 
-    p = raw_client.post("/projects", headers=headers["analista_a1"],
+    p = raw_client.post("/api/projects", headers=headers["analista_a1"],
                          json={"name": "Cliente A"}).json()
 
-    resp = raw_client.get(f"/projects/{p['id']}/imports", headers=analista_a2)
+    resp = raw_client.get(f"/api/projects/{p['id']}/imports", headers=analista_a2)
     assert resp.status_code == 403  # mesmo mesmo coordenador, analistas não veem uns dos outros
 
 
 def test_coordenador_cannot_resolve_exception_of_other_teams_project(raw_client):
     headers = _setup_two_teams(raw_client)
-    project = raw_client.post("/projects", headers=headers["analista_a1"],
+    project = raw_client.post("/api/projects", headers=headers["analista_a1"],
                                json={"name": "P"}).json()
     batch = _upload_sample(raw_client, headers["analista_a1"], project["id"]).json()
 
-    exceptions = raw_client.get("/exceptions", headers=headers["coord_a"],
+    exceptions = raw_client.get("/api/exceptions", headers=headers["coord_a"],
                                  params={"batch_id": batch["id"]}).json()
     target = exceptions[0]
 
-    resp = raw_client.post(f"/exceptions/{target['id']}/resolve", headers=headers["coord_b"],
+    resp = raw_client.post(f"/api/exceptions/{target['id']}/resolve", headers=headers["coord_b"],
                             json={"decision": "APPROVED"})
     assert resp.status_code == 403
 
@@ -279,7 +279,7 @@ def test_coordenador_cannot_resolve_exception_of_other_teams_project(raw_client)
 
 def test_coordenador_can_assign_project_to_team_member(raw_client):
     headers = _setup_two_teams(raw_client)
-    resp = raw_client.post("/projects", headers=headers["coord_a"],
+    resp = raw_client.post("/api/projects", headers=headers["coord_a"],
                             json={"name": "Atribuído", "owner_email": "analista_a1@teste.com"})
     assert resp.status_code == 200
     assert resp.json()["owner_id"] is not None
@@ -287,20 +287,20 @@ def test_coordenador_can_assign_project_to_team_member(raw_client):
 
 def test_coordenador_cannot_assign_project_outside_team(raw_client):
     headers = _setup_two_teams(raw_client)
-    resp = raw_client.post("/projects", headers=headers["coord_a"],
+    resp = raw_client.post("/api/projects", headers=headers["coord_a"],
                             json={"name": "X", "owner_email": "analista_b1@teste.com"})
     assert resp.status_code == 403
 
 
 def test_analista_cannot_assign_project_to_anyone_else(raw_client):
     headers = _setup_two_teams(raw_client)
-    resp = raw_client.post("/projects", headers=headers["analista_a1"],
+    resp = raw_client.post("/api/projects", headers=headers["analista_a1"],
                             json={"name": "X", "owner_email": "analista_b1@teste.com"})
     assert resp.status_code == 403
 
 
 def test_diretor_can_assign_project_to_anyone(raw_client):
     headers = _setup_two_teams(raw_client)
-    resp = raw_client.post("/projects", headers=headers["diretor"],
+    resp = raw_client.post("/api/projects", headers=headers["diretor"],
                             json={"name": "X", "owner_email": "analista_b1@teste.com"})
     assert resp.status_code == 200
