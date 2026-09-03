@@ -3,818 +3,928 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Winthor Data Deploy — Console</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<title>Winthor Data Deploy</title>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+
 <style>
+  /* ======================================================================
+     1. DESIGN SYSTEM (VARIAVEIS) - unica fonte de cor/espacamento do app.
+     Nunca usar cor/raio/sombra hardcoded fora daqui. Ver docs/FRONTEND_GUIDELINES.md.
+     ====================================================================== */
   :root {
-    --paper: #EEF1EF;
-    --surface: #FFFFFF;
-    --ink: #16211F;
-    --ink-soft: #4B5652;
-    --line: #D7DCD9;
-    --accent: #1F5C54;
-    --accent-soft: #E4EEEC;
-    --warn: #B8863B;
-    --warn-soft: #F6EDDD;
-    --danger: #A23B2E;
-    --danger-soft: #F5E4E0;
-    --blocker: #6B1E17;
-    --blocker-soft: #F1DDDA;
-    --radius: 3px;
+    --bg-principal: #f8fafc;
+    --bg-card: #ffffff;
+    --border-color: #e2e8f0;
+
+    --texto-principal: #0f172a;
+    --texto-secundario: #475569;
+    --texto-terciario: #94a3b8;
+
+    --cor-marca: #2563eb;
+    --cor-marca-hover: #1d4ed8;
+    --cor-marca-soft: #eff6ff;
+
+    --cor-sucesso: #16a34a;
+    --cor-sucesso-soft: #f0fdf4;
+    --cor-erro: #dc2626;
+    --cor-erro-soft: #fef2f2;
+    --cor-aviso: #d97706;
+    --cor-aviso-soft: #fffbeb;
+    --cor-bloqueio: #7f1d1d;
+    --cor-bloqueio-soft: #fee2e2;
+
+    --radius-md: 8px;
+    --radius-sm: 4px;
+    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.12);
+
+    --sidebar-width: 264px;
   }
 
-  * { box-sizing: border-box; }
+  /* ======================================================================
+     2. RESET & BASE
+     ====================================================================== */
+  * { box-sizing: border-box; margin: 0; padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
 
   body {
-    margin: 0;
-    background: var(--paper);
-    color: var(--ink);
-    font-family: 'IBM Plex Mono', monospace;
+    background-color: var(--bg-principal);
+    color: var(--texto-principal);
     font-size: 13.5px;
     line-height: 1.5;
   }
 
-  h1, h2, h3 {
-    font-family: 'IBM Plex Serif', serif;
-    font-weight: 600;
-    margin: 0;
-  }
+  button, input, select { font: inherit; color: inherit; }
+  [x-cloak] { display: none !important; }
 
-  .app {
-    display: grid;
-    grid-template-columns: 260px 1fr;
-    min-height: 100vh;
-  }
+  /* ======================================================================
+     3. LAYOUT GLOBAL
+     ====================================================================== */
+  .app-shell { display: grid; grid-template-columns: var(--sidebar-width) 1fr; min-height: 100vh; }
 
-  /* ---------- Sidebar ---------- */
   .sidebar {
-    background: var(--surface);
-    border-right: 1px solid var(--line);
-    padding: 24px 18px;
-  }
-
-  .sidebar h1 {
-    font-size: 17px;
-    letter-spacing: 0.01em;
-    margin-bottom: 2px;
-  }
-
-  .sidebar .subtitle {
-    color: var(--ink-soft);
-    font-size: 11.5px;
-    margin-bottom: 24px;
-  }
-
-  .project-list {
-    list-style: none;
-    margin: 0 0 16px 0;
-    padding: 0;
-    border-top: 1px solid var(--line);
-  }
-
-  .project-list li {
-    border-bottom: 1px solid var(--line);
-  }
-
-  .project-list button {
-    width: 100%;
-    text-align: left;
-    background: none;
-    border: none;
-    padding: 10px 4px;
-    font-family: inherit;
-    font-size: 13px;
-    color: var(--ink);
-    cursor: pointer;
-  }
-
-  .project-list button:hover { color: var(--accent); }
-
-  .project-list button.active {
-    color: var(--accent);
-    font-weight: 600;
-  }
-
-  .new-project {
-    display: flex;
-    gap: 6px;
-    margin-top: 8px;
-  }
-
-  .new-project input {
-    flex: 1;
-    font-family: inherit;
-    font-size: 12.5px;
-    padding: 7px 8px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: var(--paper);
-  }
-
-  select {
-    font-family: inherit;
-    font-size: 12.5px;
-    padding: 8px 10px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: var(--surface);
-    color: var(--ink);
-  }
-
-  /* ---------- Main ---------- */
-  main {
-    padding: 32px 40px;
-    max-width: 880px;
-  }
-
-  .empty-state {
-    color: var(--ink-soft);
-    padding-top: 80px;
-    max-width: 40ch;
-  }
-
-  .empty-state h2 { margin-bottom: 10px; }
-
-  section { margin-bottom: 36px; }
-
-  section > h2 {
-    font-size: 15px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--line);
-    margin-bottom: 14px;
-  }
-
-  .upload-zone {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 16px;
-    border: 1px dashed var(--line);
-    border-radius: var(--radius);
-    background: var(--surface);
-  }
-
-  .upload-zone input[type=file] { font-family: inherit; font-size: 12.5px; }
-
-  button.primary {
-    font-family: inherit;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: #fff;
-    background: var(--accent);
-    border: none;
-    padding: 9px 16px;
-    border-radius: var(--radius);
-    cursor: pointer;
-  }
-
-  button.primary:disabled {
-    background: #A9B5B1;
-    cursor: not-allowed;
-  }
-
-  button.ghost {
-    font-family: inherit;
-    font-size: 12px;
-    color: var(--ink);
-    background: var(--surface);
-    border: 1px solid var(--line);
-    padding: 6px 11px;
-    border-radius: var(--radius);
-    cursor: pointer;
-  }
-
-  button.ghost:hover { border-color: var(--accent); color: var(--accent); }
-
-  /* batch stats */
-  .batch-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    padding: 12px 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .batch-row:last-child { border-bottom: none; }
-
-  .stat-line {
-    display: flex;
-    gap: 28px;
-    padding: 14px 0 4px 0;
-    color: var(--ink-soft);
-    font-size: 12.5px;
-  }
-
-  .stat-line b { color: var(--ink); font-size: 15px; display: block; font-family: 'IBM Plex Serif', serif; }
-
-  /* exceptions */
-  .exception-row {
-    display: grid;
-    grid-template-columns: 96px 1fr auto;
-    gap: 14px;
-    align-items: center;
-    padding: 12px 14px;
-    background: var(--surface);
-    border-left: 4px solid var(--line);
-    margin-bottom: 6px;
-    border-radius: 0 var(--radius) var(--radius) 0;
-    transition: opacity 0.25s ease;
-  }
-
-  .exception-row[data-severity="BLOCKER"] { border-left-color: var(--blocker); }
-  .exception-row[data-severity="HIGH"] { border-left-color: var(--danger); }
-  .exception-row[data-severity="MEDIUM"] { border-left-color: var(--warn); }
-  .exception-row[data-severity="LOW"] { border-left-color: var(--line); }
-
-  .exception-row.resolved { opacity: 0.4; }
-
-  .sev-tag {
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.03em;
-  }
-  .exception-row[data-severity="BLOCKER"] .sev-tag { color: var(--blocker); }
-  .exception-row[data-severity="HIGH"] .sev-tag { color: var(--danger); }
-  .exception-row[data-severity="MEDIUM"] .sev-tag { color: var(--warn); }
-  .exception-row[data-severity="LOW"] .sev-tag { color: var(--ink-soft); }
-
-  .exception-body .reason { font-weight: 600; margin-right: 8px; }
-  .exception-body .desc { color: var(--ink-soft); }
-  .exception-body .status-tag {
-    display: inline-block;
-    margin-top: 3px;
-    font-size: 11px;
-    color: var(--accent);
-  }
-
-  .exception-actions { display: flex; gap: 6px; white-space: nowrap; }
-
-  .no-exceptions {
-    color: var(--ink-soft);
-    padding: 16px 0;
-  }
-
-  .script-panel {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-  }
-
-  .script-panel .note { font-size: 12px; color: var(--ink-soft); max-width: 46ch; }
-  .script-panel .note.blocked { color: var(--blocker); }
-
-  .toast {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    background: var(--ink);
-    color: #fff;
-    padding: 10px 16px;
-    border-radius: var(--radius);
-    font-size: 12.5px;
-    max-width: 340px;
-    opacity: 0;
-    transform: translateY(6px);
-    transition: opacity 0.2s ease, transform 0.2s ease;
-    pointer-events: none;
-  }
-  .toast.show { opacity: 1; transform: translateY(0); }
-
-  /* ---------- Login ---------- */
-  .login-screen {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    background: var(--paper);
-  }
-
-  .login-card {
+    background: var(--bg-card);
+    border-right: 1px solid var(--border-color);
+    padding: 20px 16px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    width: 280px;
-    padding: 28px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
   }
 
-  .login-card h1 { font-size: 17px; margin-bottom: 0; }
-  .login-card .subtitle { color: var(--ink-soft); font-size: 11.5px; margin-bottom: 10px; }
+  .sidebar-header { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+  .sidebar-header h1 { font-size: 15px; font-weight: 600; }
+  .sidebar-subtitle { color: var(--texto-secundario); font-size: 11.5px; margin-bottom: 20px; }
 
-  .login-card input {
-    font-family: inherit;
-    font-size: 13px;
-    padding: 9px 10px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: var(--paper);
+  .nav-tabs { display: flex; gap: 4px; margin-bottom: 16px; background: var(--bg-principal);
+              border-radius: var(--radius-md); padding: 3px; }
+  .nav-tabs button {
+    flex: 1; border: none; background: transparent; padding: 7px 8px;
+    border-radius: var(--radius-sm); font-size: 12px; font-weight: 500;
+    color: var(--texto-secundario); cursor: pointer; transition: all 0.2s ease;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .nav-tabs button.active { background: var(--bg-card); color: var(--cor-marca); box-shadow: var(--shadow-sm); }
+  .nav-tabs button:hover:not(.active) { color: var(--texto-principal); }
+
+  .project-list { list-style: none; flex: 1; overflow-y: auto; }
+  .project-item {
+    display: flex; align-items: center; gap: 8px; padding: 9px 10px;
+    border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s ease;
+    font-size: 13px; color: var(--texto-principal);
+  }
+  .project-item:hover { background: var(--bg-principal); }
+  .project-item.active { background: var(--cor-marca-soft); color: var(--cor-marca-hover); font-weight: 600; }
+
+  .new-project-form { display: flex; gap: 6px; margin-top: 10px; }
+  .new-project-form input { flex: 1; }
+
+  .sidebar-footer {
+    margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-color);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .user-chip { font-size: 12px; }
+
+  main.content { padding: 28px 36px; overflow-y: auto; max-width: 960px; }
+
+  .empty-state { padding-top: 60px; max-width: 42ch; color: var(--texto-secundario); }
+  .empty-state h2 { color: var(--texto-principal); font-size: 17px; margin-bottom: 8px; }
+
+  section.panel { margin-bottom: 28px; }
+  section.panel > h2 {
+    font-size: 14.5px; font-weight: 600; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color); margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
   }
 
-  .login-error {
-    color: var(--danger);
-    font-size: 11.5px;
-    min-height: 14px;
+  /* ======================================================================
+     4. COMPONENTES
+     ====================================================================== */
+
+  input[type=text], input[type=email], input[type=password], input[type=file], select {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    background: var(--bg-card);
+    transition: all 0.2s ease;
   }
+  input:focus-within, input:focus, select:focus {
+    outline: none; border-color: var(--cor-marca);
+    box-shadow: 0 0 0 3px var(--cor-marca-soft);
+  }
+
+  button.btn-primary {
+    background: var(--cor-marca); color: #fff; border: none;
+    padding: 9px 16px; border-radius: var(--radius-sm); font-weight: 600; font-size: 12.5px;
+    cursor: pointer; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 6px;
+  }
+  button.btn-primary:hover { background: var(--cor-marca-hover); }
+  button.btn-primary:disabled { background: var(--texto-terciario); cursor: not-allowed; }
+
+  button.btn-ghost {
+    background: var(--bg-card); border: 1px solid var(--border-color);
+    color: var(--texto-principal); padding: 7px 12px; border-radius: var(--radius-sm);
+    font-size: 12px; cursor: pointer; transition: all 0.2s ease;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  button.btn-ghost:hover { border-color: var(--cor-marca); color: var(--cor-marca-hover); }
+
+  button.btn-danger-ghost { color: var(--cor-erro); border-color: var(--border-color); }
+  button.btn-danger-ghost:hover { border-color: var(--cor-erro); background: var(--cor-erro-soft); }
+
+  button.icon-btn {
+    background: none; border: none; cursor: pointer; color: var(--texto-secundario);
+    padding: 6px; border-radius: var(--radius-sm); transition: all 0.2s ease;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  button.icon-btn:hover { background: var(--bg-principal); color: var(--texto-principal); }
+
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border-color);
+    border-radius: var(--radius-md); padding: 16px;
+  }
+  .upload-zone {
+    display: flex; align-items: center; gap: 14px; padding: 18px;
+    border: 1.5px dashed var(--border-color); border-radius: var(--radius-md);
+    background: var(--bg-card); transition: all 0.2s ease;
+  }
+  .upload-zone:focus-within { border-color: var(--cor-marca); }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+  .stat-box {
+    background: var(--bg-card); border: 1px solid var(--border-color);
+    border-radius: var(--radius-md); padding: 12px 14px;
+  }
+  .stat-box .value { font-size: 20px; font-weight: 700; color: var(--texto-principal); }
+  .stat-box .label { font-size: 11px; color: var(--texto-secundario); margin-top: 2px; }
+
+  .batch-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 14px; background: var(--bg-card); border: 1px solid var(--border-color);
+    border-radius: var(--radius-md); margin-bottom: 8px; transition: all 0.2s ease;
+  }
+  .batch-row:hover { box-shadow: var(--shadow-sm); }
+  .batch-row .filename { font-weight: 600; font-size: 13px; }
+  .batch-row .meta { color: var(--texto-secundario); font-size: 11.5px; margin-top: 2px; }
+
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600;
+    padding: 2px 8px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.02em;
+  }
+  .status-pill.status-DONE { background: var(--cor-sucesso-soft); color: var(--cor-sucesso); }
+  .status-pill.status-PENDING, .status-pill.status-PROCESSING { background: var(--cor-aviso-soft); color: var(--cor-aviso); }
+  .status-pill.status-FAILED { background: var(--cor-erro-soft); color: var(--cor-erro); }
+
+  .exception-row {
+    display: grid; grid-template-columns: 92px 1fr auto; gap: 14px; align-items: center;
+    padding: 12px 14px; background: var(--bg-card); border: 1px solid var(--border-color);
+    border-left-width: 4px; border-radius: var(--radius-md); margin-bottom: 8px;
+    transition: all 0.2s ease;
+  }
+  .exception-row:hover { box-shadow: var(--shadow-sm); }
+  .exception-row.sev-BLOCKER { border-left-color: var(--cor-bloqueio); }
+  .exception-row.sev-HIGH { border-left-color: var(--cor-erro); }
+  .exception-row.sev-MEDIUM { border-left-color: var(--cor-aviso); }
+  .exception-row.sev-LOW { border-left-color: var(--border-color); }
+  .exception-row.resolved { opacity: 0.45; }
+
+  .sev-tag { font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em; }
+  .sev-BLOCKER .sev-tag { color: var(--cor-bloqueio); }
+  .sev-HIGH .sev-tag { color: var(--cor-erro); }
+  .sev-MEDIUM .sev-tag { color: var(--cor-aviso); }
+  .sev-LOW .sev-tag { color: var(--texto-terciario); }
+
+  .exception-body .reason { font-weight: 600; margin-right: 8px; font-size: 12.5px; }
+  .exception-body .desc { color: var(--texto-secundario); font-size: 12.5px; }
+  .exception-body .status-line { display: block; margin-top: 3px; font-size: 11px; color: var(--cor-marca); }
+  .exception-actions { display: flex; gap: 6px; }
+
+  .pagination-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 10px; font-size: 12px; color: var(--texto-secundario);
+  }
+
+  .wizard-select-row { display: flex; gap: 10px; margin: 14px 0; }
+  .module-check {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    background: var(--bg-card); border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm); margin-bottom: 6px; cursor: pointer;
+  }
+  .module-check input { cursor: pointer; }
+
+  .user-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px; background: var(--bg-card); border: 1px solid var(--border-color);
+    border-radius: var(--radius-md); margin-bottom: 6px;
+  }
+  .role-badge {
+    font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+    text-transform: uppercase; background: var(--cor-marca-soft); color: var(--cor-marca-hover);
+  }
+
+  .login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .login-card {
+    width: 300px; padding: 32px; background: var(--bg-card);
+    border: 1px solid var(--border-color); border-radius: var(--radius-md); box-shadow: var(--shadow-md);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .login-card h1 { font-size: 17px; margin-bottom: 2px; }
+  .login-card .sidebar-subtitle { margin-bottom: 12px; }
+  .login-error { color: var(--cor-erro); font-size: 12px; min-height: 14px; }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; background: var(--texto-principal); color: #fff;
+    padding: 10px 16px; border-radius: var(--radius-sm); font-size: 12.5px; max-width: 340px;
+    box-shadow: var(--shadow-md); display: flex; align-items: center; gap: 8px;
+  }
+
+  .form-grid { display: flex; flex-direction: column; gap: 10px; max-width: 420px; }
+  .field-label { font-size: 12px; font-weight: 600; color: var(--texto-secundario); margin-bottom: -4px; }
+  .note-text { font-size: 12px; color: var(--texto-secundario); }
+  .note-text.blocked { color: var(--cor-bloqueio); }
 </style>
 </head>
-<body>
+<body x-data="app()" x-init="init()">
 
-<div class="login-screen" id="login-screen">
-  <form class="login-card" id="login-form">
+<div class="login-screen" x-show="!token" x-cloak>
+  <form class="login-card" x-on:submit.prevent="login()">
     <h1>Winthor Data Deploy</h1>
-    <div class="subtitle">Console de migração</div>
-    <input type="email" id="login-email" placeholder="Email" required autocomplete="username">
-    <input type="password" id="login-password" placeholder="Senha" required autocomplete="current-password">
-    <button class="primary" type="submit">Entrar</button>
-    <div class="login-error" id="login-error"></div>
+    <div class="sidebar-subtitle">Console de migracao</div>
+    <input type="email" x-model="loginForm.email" placeholder="Email" required autocomplete="username">
+    <input type="password" x-model="loginForm.password" placeholder="Senha" required autocomplete="current-password">
+    <button type="submit" class="btn-primary" style="justify-content:center;">Entrar</button>
+    <div class="login-error" x-text="loginError"></div>
   </form>
 </div>
 
-<div class="app" id="app-shell" style="display:none;">
+<div class="app-shell" x-show="token" x-cloak>
+
   <aside class="sidebar">
-    <h1>Winthor Data Deploy</h1>
-    <div class="subtitle" id="user-subtitle">Console de migração</div>
+    <div class="sidebar-header">
+      <i data-lucide="layers" style="width:18px;height:18px;color:var(--cor-marca);"></i>
+      <h1>Winthor Data Deploy</h1>
+    </div>
+    <div class="sidebar-subtitle" x-text="me ? me.name + ' - ' + me.role : ''"></div>
 
-    <ul class="project-list" id="project-list"></ul>
+    <nav class="nav-tabs">
+      <button x-on:click="view = 'projects'" x-bind:class="{active: view === 'projects'}">
+        <i data-lucide="folder" style="width:14px;height:14px;"></i> Projetos
+      </button>
+      <button x-show="me && me.role !== 'analista'" x-on:click="view = 'team'; loadTeam()" x-bind:class="{active: view === 'team'}">
+        <i data-lucide="users" style="width:14px;height:14px;"></i> Equipe
+      </button>
+    </nav>
 
-    <form class="new-project" id="new-project-form">
-      <input type="text" id="new-project-name" placeholder="Nome do projeto (cliente)" required>
-      <button class="ghost" type="submit">+</button>
-    </form>
+    <template x-if="view === 'projects'">
+      <div style="display:flex; flex-direction:column; flex:1; min-height:0;">
+        <ul class="project-list">
+          <template x-for="p in projects" :key="p.id">
+            <li class="project-item" x-bind:class="{active: currentProject && currentProject.id === p.id}"
+                x-on:click="selectProject(p)">
+              <i data-lucide="building-2" style="width:13px;height:13px;"></i>
+              <span x-text="p.name"></span>
+            </li>
+          </template>
+        </ul>
+        <form class="new-project-form" x-on:submit.prevent="createProject()">
+          <input type="text" x-model="newProjectName" placeholder="Nome do projeto (cliente)" required>
+          <button type="submit" class="btn-ghost"><i data-lucide="plus" style="width:14px;height:14px;"></i></button>
+        </form>
+      </div>
+    </template>
 
-    <button class="ghost" id="logout-btn" style="width:100%; margin-top:24px;">Sair</button>
+    <div class="sidebar-footer">
+      <div class="user-chip">
+        <span x-text="me ? me.email : ''"></span>
+      </div>
+      <button class="icon-btn" x-on:click="logout()" title="Sair">
+        <i data-lucide="log-out" style="width:16px;height:16px;"></i>
+      </button>
+    </div>
   </aside>
 
-  <main id="main">
-    <div class="empty-state">
+  <main class="content">
+
+    <div class="empty-state" x-show="view === 'projects' && !currentProject">
       <h2>Nenhum projeto selecionado</h2>
-      <p>Crie um projeto ao lado (ex: nome do cliente) para começar: subir arquivos,
-      validar automaticamente e tratar exceções antes de gerar o script de carga.</p>
+      <p>Crie um projeto ao lado (ex: nome do cliente) para comecar: definir o perfil de
+      aderencia, subir arquivos, validar automaticamente e tratar excecoes antes de gerar
+      o arquivo de carga.</p>
     </div>
+
+    <template x-if="view === 'projects' && currentProject && !adherence.segment">
+      <section class="panel">
+        <h2><i data-lucide="clipboard-list" style="width:16px;height:16px;"></i>
+          Perfil de aderencia - <span x-text="currentProject.name"></span></h2>
+        <p class="note-text" style="max-width:60ch; margin-bottom:14px;">
+          O layout do Winthor e fixo - isto nao remove campo do arquivo, decide o que e
+          exigido como obrigatorio e o que recebe valor padrao automatico.
+        </p>
+
+        <div class="wizard-select-row">
+          <select x-model="wizardSegment" x-on:change="wizardSubsegment = ''; applyPreset()">
+            <option value="">Segmento...</option>
+            <template x-for="s in (segmentsConfig ? segmentsConfig.segmentos : [])" :key="s.id">
+              <option :value="s.id" x-text="s.nome"></option>
+            </template>
+          </select>
+          <select x-model="wizardSubsegment" x-on:change="applyPreset()">
+            <option value="">Subsegmento...</option>
+            <template x-for="sub in currentSubsegments()" :key="sub.id">
+              <option :value="sub.id" x-text="sub.nome"></option>
+            </template>
+          </select>
+        </div>
+
+        <template x-if="wizardSubsegment">
+          <div>
+            <template x-for="m in wizardModules()" :key="m.id">
+              <label class="module-check">
+                <input type="checkbox" x-model="wizardAnswers[m.id]">
+                <span x-text="m.pergunta_wizard"></span>
+              </label>
+            </template>
+            <button class="btn-primary" style="margin-top:10px;" x-on:click="saveAdherence()">
+              <i data-lucide="check" style="width:14px;height:14px;"></i> Salvar perfil
+            </button>
+          </div>
+        </template>
+      </section>
+    </template>
+
+    <template x-if="view === 'projects' && currentProject && adherence.segment">
+      <div>
+        <section class="panel">
+          <h2><i data-lucide="clipboard-check" style="width:16px;height:16px;"></i>
+            <span x-text="currentProject.name"></span></h2>
+          <p class="note-text">
+            <span x-text="adherence.segment + ' / ' + adherence.subsegment"></span> -
+            modulos ativos:
+            <span x-text="activeModuleNames() || 'nenhum (so cadastro basico + fiscal)'"></span>
+            &nbsp;
+            <a href="#" x-on:click.prevent="adherence = {}" style="color:var(--cor-marca);">editar</a>
+          </p>
+        </section>
+
+        <section class="panel">
+          <h2><i data-lucide="upload-cloud" style="width:16px;height:16px;"></i> Enviar arquivo</h2>
+          <div class="upload-zone">
+            <input type="file" accept=".csv" x-on:change="uploadFile = $event.target.files[0]">
+            <button class="btn-primary" x-on:click="submitUpload()" :disabled="uploading">
+              <i data-lucide="upload" style="width:14px;height:14px;"></i>
+              <span x-text="uploading ? 'Enviando...' : 'Enviar e validar'"></span>
+            </button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2><i data-lucide="list" style="width:16px;height:16px;"></i> Lotes importados</h2>
+          <div x-show="batches.length === 0" class="note-text">Nenhum lote ainda.</div>
+          <template x-for="b in batches" :key="b.id">
+            <div class="batch-row">
+              <div>
+                <div class="filename" x-text="b.source_file"></div>
+                <div class="meta">
+                  <span class="status-pill" x-bind:class="'status-' + b.status" x-text="b.status"></span>
+                  &nbsp;<span x-text="b.total_records"></span> registros -
+                  <span x-text="b.exception_count"></span> excecoes -
+                  readiness <span x-text="Math.round(b.data_readiness_score * 100)"></span>%
+                </div>
+              </div>
+              <button class="btn-ghost" x-on:click="selectBatch(b)">Abrir</button>
+            </div>
+          </template>
+        </section>
+
+        <template x-if="currentBatch">
+          <div>
+            <section class="panel">
+              <h2><i data-lucide="alert-triangle" style="width:16px;height:16px;"></i> Fila de excecoes</h2>
+              <div class="stat-grid" x-show="report">
+                <div class="stat-box"><div class="value" x-text="report ? report.total_registros : 0"></div><div class="label">registros</div></div>
+                <div class="stat-box"><div class="value" x-text="report ? report.total_excecoes : 0"></div><div class="label">excecoes</div></div>
+                <div class="stat-box"><div class="value" x-text="report ? Math.round(report.data_readiness_score * 100) + '%' : '0%'"></div><div class="label">data readiness</div></div>
+                <div class="stat-box"><div class="value" x-text="report ? report.excecoes_bloqueantes : 0"></div><div class="label">bloqueantes</div></div>
+              </div>
+
+              <div x-show="exceptions.length === 0" class="note-text">Nenhuma excecao nesta pagina.</div>
+              <template x-for="ex in exceptions" :key="ex.id">
+                <div class="exception-row" x-bind:class="['sev-' + ex.severity, ex.resolution_status !== 'PENDING' ? 'resolved' : '']">
+                  <div class="sev-tag" x-text="ex.severity"></div>
+                  <div class="exception-body">
+                    <span class="reason" x-text="ex.reason_code"></span>
+                    <span class="desc" x-text="ex.description"></span>
+                    <span class="status-line" x-text="ex.record_id + ' - ' + ex.resolution_status + (ex.resolved_by ? ' - ' + ex.resolved_by : '')"></span>
+                  </div>
+                  <div class="exception-actions" x-show="ex.resolution_status === 'PENDING'">
+                    <button class="btn-ghost" x-on:click="resolveException(ex.id, 'APPROVED')">Aprovar</button>
+                    <button class="btn-ghost btn-danger-ghost" x-on:click="resolveException(ex.id, 'REJECTED')">Rejeitar</button>
+                  </div>
+                </div>
+              </template>
+
+              <div class="pagination-bar" x-show="exceptionsTotal > exceptionsLimit">
+                <span x-text="'Mostrando ' + (exceptionsOffset + 1) + '-' + Math.min(exceptionsOffset + exceptionsLimit, exceptionsTotal) + ' de ' + exceptionsTotal"></span>
+                <div style="display:flex; gap:6px;">
+                  <button class="btn-ghost" x-on:click="changeExceptionsPage(-1)" :disabled="exceptionsOffset === 0">Anterior</button>
+                  <button class="btn-ghost" x-on:click="changeExceptionsPage(1)" :disabled="exceptionsOffset + exceptionsLimit >= exceptionsTotal">Proxima</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <h2><i data-lucide="file-output" style="width:16px;height:16px;"></i> Arquivo de carga</h2>
+              <div class="card" style="display:flex; align-items:center; justify-content:space-between;">
+                <div class="note-text" x-bind:class="{blocked: readiness && !readiness.ready_for_dry_run}"
+                     x-text="readiness && readiness.ready_for_dry_run
+                       ? 'Sem excecoes bloqueantes pendentes. Pronto para gerar o arquivo.'
+                       : (readiness ? readiness.pending_blockers + ' excecao(oes) BLOCKER pendente(s). Resolva antes de gerar.' : '')">
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <select x-model="scriptFormat">
+                    <option value="texto">Arquivo texto (oficial Winthor)</option>
+                    <option value="sql">INSERT Oracle (alternativo)</option>
+                  </select>
+                  <button class="btn-primary" x-on:click="generateScript()" :disabled="!readiness || !readiness.ready_for_dry_run">
+                    <i data-lucide="download" style="width:14px;height:14px;"></i> Gerar
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <template x-if="view === 'team'">
+      <div>
+        <section class="panel">
+          <h2><i data-lucide="users" style="width:16px;height:16px;"></i> Equipe</h2>
+          <div x-show="teamUsers.length === 0" class="note-text">Nenhum usuario ainda.</div>
+          <template x-for="u in teamUsers" :key="u.id">
+            <div class="user-row">
+              <div>
+                <strong x-text="u.name"></strong>
+                <span class="note-text" x-text="' - ' + u.email"></span>
+              </div>
+              <span class="role-badge" x-text="u.role"></span>
+            </div>
+          </template>
+        </section>
+
+        <section class="panel">
+          <h2><i data-lucide="user-plus" style="width:16px;height:16px;"></i> Adicionar pessoa</h2>
+          <div class="form-grid">
+            <input type="text" x-model="newUserForm.name" placeholder="Nome">
+            <input type="email" x-model="newUserForm.email" placeholder="Email">
+            <input type="password" x-model="newUserForm.password" placeholder="Senha provisoria">
+
+            <template x-if="me && me.role === 'diretor'">
+              <div class="field-label">Papel</div>
+            </template>
+            <template x-if="me && me.role === 'diretor'">
+              <select x-model="newUserForm.role">
+                <option value="coordenador">Coordenador</option>
+                <option value="analista">Analista de servicos</option>
+              </select>
+            </template>
+
+            <template x-if="me && me.role === 'diretor' && newUserForm.role === 'analista'">
+              <div class="field-label">Coordenador responsavel</div>
+            </template>
+            <template x-if="me && me.role === 'diretor' && newUserForm.role === 'analista'">
+              <select x-model="newUserForm.manager_email">
+                <option value="">Selecione...</option>
+                <template x-for="c in teamUsers.filter(function(u) { return u.role === 'coordenador'; })" :key="c.id">
+                  <option :value="c.email" x-text="c.name"></option>
+                </template>
+              </select>
+            </template>
+
+            <p class="note-text" x-show="me && me.role === 'coordenador'">
+              Como coordenador, a pessoa criada entra automaticamente na sua equipe como analista.
+            </p>
+
+            <button class="btn-primary" style="align-self:flex-start;" x-on:click="createTeamMember()">
+              <i data-lucide="check" style="width:14px;height:14px;"></i> Criar
+            </button>
+          </div>
+        </section>
+      </div>
+    </template>
+
   </main>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" x-show="toastMessage" x-cloak x-transition
+     x-text="toastMessage"
+     x-effect="if (toastMessage) { clearTimeout(toastTimer); toastTimer = setTimeout(function() { toastMessage = ''; }, 3500); }">
+</div>
 
 <script>
-const API = "";
-let currentProject = null;
-let currentBatch = null;
+var API = {
+  request: function(path, opts) {
+    opts = opts || {};
+    var method = opts.method || 'GET';
+    var token = opts.token || null;
+    var json = opts.json || null;
+    var form = opts.form || null;
+    var headers = opts.headers || {};
 
-function toast(msg) {
-  const el = document.getElementById("toast");
-  el.textContent = msg;
-  el.classList.add("show");
-  setTimeout(() => el.classList.remove("show"), 3200);
-}
+    var finalHeaders = Object.assign({}, headers);
+    if (token) finalHeaders['Authorization'] = 'Bearer ' + token;
 
-function getToken() { return localStorage.getItem("winthor_token"); }
-function setToken(t) { localStorage.setItem("winthor_token", t); }
-function clearToken() { localStorage.removeItem("winthor_token"); }
+    var body;
+    if (json) { finalHeaders['Content-Type'] = 'application/json'; body = JSON.stringify(json); }
+    if (form) { body = form; }
 
-async function api(path, opts = {}) {
-  const headers = { ...(opts.headers || {}) };
-  const token = getToken();
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  const resp = await fetch(API + path, { ...opts, headers });
-
-  if (resp.status === 401) {
-    clearToken();
-    showLoginScreen();
-    throw new Error("Sessão expirada. Faça login novamente.");
-  }
-  if (!resp.ok && resp.headers.get("content-type")?.includes("application/json")) {
-    const err = await resp.json();
-    throw new Error(err.detail || resp.statusText);
-  }
-  if (!resp.ok) throw new Error(await resp.text());
-  return resp;
-}
-
-function showLoginScreen() {
-  document.getElementById("login-screen").style.display = "flex";
-  document.getElementById("app-shell").style.display = "none";
-}
-
-async function showAppShell() {
-  document.getElementById("login-screen").style.display = "none";
-  document.getElementById("app-shell").style.display = "grid";
-  try {
-    const me = await (await api("/auth/me")).json();
-    document.getElementById("user-subtitle").textContent = `${me.name} · ${me.role}`;
-  } catch (e) { /* já tratado por api() se der 401 */ }
-  loadProjects();
-}
-
-document.getElementById("login-form").onsubmit = async (e) => {
-  e.preventDefault();
-  const email = document.getElementById("login-email").value;
-  const password = document.getElementById("login-password").value;
-  const errorEl = document.getElementById("login-error");
-  errorEl.textContent = "";
-
-  try {
-    const form = new URLSearchParams();
-    form.append("username", email);
-    form.append("password", password);
-    const resp = await fetch(`${API}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: form,
+    return fetch(path, { method: method, headers: finalHeaders, body: body }).then(function(resp) {
+      if (resp.status === 401) {
+        var err = new Error('Sessao expirada.');
+        err.unauthorized = true;
+        throw err;
+      }
+      if (!resp.ok) {
+        var contentType = resp.headers.get('content-type') || '';
+        if (contentType.indexOf('application/json') !== -1) {
+          return resp.json().then(function(data) { throw new Error(data.detail || resp.statusText); });
+        }
+        return resp.text().then(function(text) { throw new Error(text || resp.statusText); });
+      }
+      return resp;
     });
-    if (!resp.ok) throw new Error("Email ou senha incorretos.");
-    const data = await resp.json();
-    setToken(data.access_token);
-    showAppShell();
-  } catch (err) {
-    errorEl.textContent = err.message;
-  }
+  },
+  get: function(path, token) { return this.request(path, { token: token }); },
+  postJson: function(path, json, token) { return this.request(path, { method: 'POST', json: json, token: token }); },
+  postForm: function(path, form, token) { return this.request(path, { method: 'POST', form: form, token: token }); },
 };
 
-document.getElementById("logout-btn").onclick = () => {
-  clearToken();
-  currentProject = null;
-  currentBatch = null;
-  showLoginScreen();
-};
+function app() {
+  return {
+    token: localStorage.getItem('winthor_token') || null,
+    me: null,
+    loginForm: { email: '', password: '' },
+    loginError: '',
 
-// Inicialização: se já tem token salvo, tenta entrar direto.
-if (getToken()) { showAppShell(); } else { showLoginScreen(); }
+    view: 'projects',
 
-async function loadProjects() {
-  const resp = await api("/projects");
-  const projects = await resp.json();
-  const list = document.getElementById("project-list");
-  list.innerHTML = "";
-  projects.forEach(p => {
-    const li = document.createElement("li");
-    const btn = document.createElement("button");
-    btn.textContent = p.name;
-    btn.className = currentProject === p.id ? "active" : "";
-    btn.onclick = () => selectProject(p.id, p.name);
-    li.appendChild(btn);
-    list.appendChild(li);
-  });
-}
+    projects: [],
+    newProjectName: '',
+    currentProject: null,
+    adherence: {},
 
-document.getElementById("new-project-form").onsubmit = async (e) => {
-  e.preventDefault();
-  const input = document.getElementById("new-project-name");
-  const name = input.value.trim();
-  if (!name) return;
-  const resp = await api("/projects", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
-  });
-  const project = await resp.json();
-  input.value = "";
-  await loadProjects();
-  selectProject(project.id, project.name);
-};
+    segmentsConfig: null,
+    modulesConfig: null,
+    wizardSegment: '',
+    wizardSubsegment: '',
+    wizardAnswers: {},
 
-async function selectProject(id, name) {
-  currentProject = id;
-  currentBatch = null;
-  await loadProjects();
-  renderProjectView(name);
-}
+    batches: [],
+    uploadFile: null,
+    uploading: false,
+    currentBatch: null,
+    report: null,
+    readiness: null,
+    scriptFormat: 'texto',
 
-function renderProjectView(name) {
-  const main = document.getElementById("main");
-  main.innerHTML = `
-    <section id="adherence-section">
-      <h2>Perfil de aderência — ${name}</h2>
-      <div id="adherence-content">Carregando...</div>
-    </section>
-    <section id="upload-section" style="display:none;">
-      <div class="upload-zone">
-        <input type="file" id="file-input" accept=".csv">
-        <button class="primary" id="upload-btn">Enviar e validar</button>
-      </div>
-    </section>
-    <section id="batches-section" style="display:none;">
-      <h2>Lotes importados</h2>
-      <div id="batches-list"></div>
-    </section>
-    <section id="detail-section" style="display:none;">
-      <h2>Fila de exceções</h2>
-      <div class="stat-line" id="stat-line"></div>
-      <div id="exceptions-list"></div>
-    </section>
-    <section id="script-section" style="display:none;">
-      <h2>Script de carga</h2>
-      <div class="script-panel">
-        <div class="note" id="script-note"></div>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <select id="format-select">
-            <option value="texto">Arquivo texto (oficial Winthor)</option>
-            <option value="sql">INSERT Oracle (alternativo)</option>
-          </select>
-          <button class="primary" id="generate-script-btn">Gerar</button>
-        </div>
-      </div>
-    </section>
-  `;
+    exceptions: [],
+    exceptionsTotal: 0,
+    exceptionsOffset: 0,
+    exceptionsLimit: 50,
 
-  document.getElementById("upload-btn").onclick = uploadFile;
-  loadAdherence();
-}
+    teamUsers: [],
+    newUserForm: { name: '', email: '', password: '', role: 'analista', manager_email: '' },
 
-async function loadAdherence() {
-  const resp = await api(`/projects/${currentProject}/adherence`);
-  const adherence = await resp.json();
+    toastMessage: '',
+    toastTimer: null,
 
-  if (adherence.segment) {
-    renderAdherenceSummary(adherence);
-  } else {
-    await renderAdherenceWizard();
-  }
-}
+    init: function() {
+      var self = this;
+      if (this.token) {
+        this.afterLogin().catch(function() { self.logout(); });
+      }
+      this.$nextTick(function() { refreshIcons(); });
+    },
 
-function unlockUploadFlow() {
-  document.getElementById("upload-section").style.display = "block";
-  document.getElementById("batches-section").style.display = "block";
-  loadBatches();
-}
-
-function renderAdherenceSummary(adherence) {
-  const applicableModules = Object.entries(adherence.adherence_answers)
-    .filter(([, v]) => v === true).map(([k]) => k);
-
-  document.getElementById("adherence-content").innerHTML = `
-    <p style="color:var(--ink-soft); font-size:12.5px;">
-      ${adherence.segment} / ${adherence.subsegment} —
-      módulos ativos: ${applicableModules.length ? applicableModules.join(", ") : "nenhum (só cadastro básico + fiscal)"}
-    </p>
-    <button class="ghost" id="edit-adherence-btn">Editar perfil de aderência</button>
-  `;
-  document.getElementById("edit-adherence-btn").onclick = renderAdherenceWizard;
-  unlockUploadFlow();
-}
-
-async function renderAdherenceWizard() {
-  const [segResp, modResp] = await Promise.all([
-    api("/adherence/segments"),
-    api("/adherence/modules"),
-  ]);
-  const segmentsConfig = await segResp.json();
-  const modulesConfig = await modResp.json();
-  const wizardModules = modulesConfig.modulos.filter(m => m.pergunta_wizard);
-
-  const content = document.getElementById("adherence-content");
-  content.innerHTML = `
-    <p style="color:var(--ink-soft); font-size:12.5px; max-width:60ch;">
-      O layout do Winthor é fixo — isto não remove campo do arquivo, decide
-      o que é exigido como obrigatório e o que recebe valor padrão automático.
-    </p>
-    <div style="display:flex; gap:10px; margin:14px 0;">
-      <select id="segment-select"><option value="">Segmento...</option></select>
-      <select id="subsegment-select"><option value="">Subsegmento...</option></select>
-    </div>
-    <div id="modules-checklist"></div>
-    <button class="primary" id="save-adherence-btn" style="margin-top:14px;" disabled>Salvar perfil</button>
-  `;
-
-  const segmentSelect = document.getElementById("segment-select");
-  segmentsConfig.segmentos.forEach(s => {
-    const opt = document.createElement("option");
-    opt.value = s.id; opt.textContent = s.nome;
-    segmentSelect.appendChild(opt);
-  });
-
-  let currentPreset = {};
-
-  function renderChecklist(preset) {
-    currentPreset = preset;
-    const list = document.getElementById("modules-checklist");
-    list.innerHTML = "";
-    wizardModules.forEach(m => {
-      const row = document.createElement("div");
-      row.className = "batch-row";
-      const checked = preset[m.id] ? "checked" : "";
-      row.innerHTML = `
-        <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
-          <input type="checkbox" data-module="${m.id}" ${checked}>
-          <span>${m.pergunta_wizard}</span>
-        </label>
-      `;
-      list.appendChild(row);
-    });
-    document.getElementById("save-adherence-btn").disabled = false;
-  }
-
-  segmentSelect.onchange = () => {
-    const subSelect = document.getElementById("subsegment-select");
-    subSelect.innerHTML = '<option value="">Subsegmento...</option>';
-    const seg = segmentsConfig.segmentos.find(s => s.id === segmentSelect.value);
-    if (!seg) return;
-    seg.subsegmentos.forEach(sub => {
-      const opt = document.createElement("option");
-      opt.value = sub.id; opt.textContent = sub.nome;
-      opt.dataset.preset = JSON.stringify(sub.preset);
-      subSelect.appendChild(opt);
-    });
-  };
-
-  content.querySelector("#subsegment-select").addEventListener("change", (e) => {
-    const opt = e.target.selectedOptions[0];
-    if (!opt || !opt.dataset.preset) return;
-    renderChecklist(JSON.parse(opt.dataset.preset));
-  });
-
-  document.getElementById("save-adherence-btn").onclick = async () => {
-    const segment = segmentSelect.value;
-    const subsegment = document.getElementById("subsegment-select").value;
-    if (!segment || !subsegment) { toast("Selecione segmento e subsegmento."); return; }
-
-    const overrides = {};
-    document.querySelectorAll("#modules-checklist input[type=checkbox]").forEach(cb => {
-      overrides[cb.dataset.module] = cb.checked;
-    });
-
-    try {
-      const resp = await api(`/projects/${currentProject}/adherence`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ segment, subsegment, overrides }),
+    login: function() {
+      var self = this;
+      this.loginError = '';
+      var form = new URLSearchParams();
+      form.append('username', this.loginForm.email);
+      form.append('password', this.loginForm.password);
+      return fetch('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form,
+      }).then(function(resp) {
+        if (!resp.ok) throw new Error('Email ou senha incorretos.');
+        return resp.json();
+      }).then(function(data) {
+        self.token = data.access_token;
+        localStorage.setItem('winthor_token', self.token);
+        return self.afterLogin();
+      }).catch(function(e) {
+        self.loginError = e.message;
       });
-      const saved = await resp.json();
-      toast("Perfil de aderência salvo.");
-      renderAdherenceSummary(saved);
-    } catch (err) {
-      toast("Erro: " + err.message);
-    }
+    },
+
+    afterLogin: function() {
+      var self = this;
+      return API.get('/auth/me', this.token).then(function(resp) { return resp.json(); }).then(function(data) {
+        self.me = data;
+        return self.loadProjects();
+      }).then(function() {
+        self.$nextTick(function() { refreshIcons(); });
+      });
+    },
+
+    logout: function() {
+      this.token = null;
+      this.me = null;
+      this.currentProject = null;
+      this.currentBatch = null;
+      localStorage.removeItem('winthor_token');
+    },
+
+    call: function(promiseFn) {
+      var self = this;
+      return promiseFn().catch(function(e) {
+        if (e.unauthorized) { self.logout(); return null; }
+        self.toast('Erro: ' + e.message);
+        return null;
+      });
+    },
+
+    toast: function(msg) { this.toastMessage = msg; },
+
+    loadProjects: function() {
+      var self = this;
+      return this.call(function() { return API.get('/projects', self.token); }).then(function(resp) {
+        if (resp) return resp.json().then(function(data) { self.projects = data; });
+      });
+    },
+
+    createProject: function() {
+      var self = this;
+      if (!this.newProjectName.trim()) return;
+      return this.call(function() {
+        return API.postJson('/projects', { name: self.newProjectName }, self.token);
+      }).then(function(resp) {
+        if (!resp) return;
+        return resp.json().then(function(project) {
+          self.newProjectName = '';
+          return self.loadProjects().then(function() { self.selectProject(project); });
+        });
+      });
+    },
+
+    selectProject: function(project) {
+      var self = this;
+      this.currentProject = project;
+      this.currentBatch = null;
+      this.adherence = {};
+      return this.loadAdherence().then(function() { return self.loadBatches(); }).then(function() {
+        self.$nextTick(function() { refreshIcons(); });
+      });
+    },
+
+    loadAdherence: function() {
+      var self = this;
+      return this.call(function() {
+        return API.get('/projects/' + self.currentProject.id + '/adherence', self.token);
+      }).then(function(resp) {
+        if (!resp) return;
+        return resp.json().then(function(data) {
+          if (data.segment) {
+            self.adherence = data;
+          } else {
+            self.adherence = {};
+            return self.loadWizardConfig();
+          }
+        });
+      });
+    },
+
+    loadWizardConfig: function() {
+      var self = this;
+      if (this.segmentsConfig && this.modulesConfig) return Promise.resolve();
+      return Promise.all([
+        this.call(function() { return API.get('/adherence/segments', self.token); }),
+        this.call(function() { return API.get('/adherence/modules', self.token); }),
+      ]).then(function(results) {
+        var segResp = results[0], modResp = results[1];
+        var jobs = [];
+        if (segResp) jobs.push(segResp.json().then(function(d) { self.segmentsConfig = d; }));
+        if (modResp) jobs.push(modResp.json().then(function(d) { self.modulesConfig = d; }));
+        return Promise.all(jobs);
+      });
+    },
+
+    currentSubsegments: function() {
+      if (!this.segmentsConfig || !this.wizardSegment) return [];
+      var seg = this.segmentsConfig.segmentos.find(function(s) { return s.id === this.wizardSegment; }, this);
+      return seg ? seg.subsegmentos : [];
+    },
+
+    wizardModules: function() {
+      if (!this.modulesConfig) return [];
+      return this.modulesConfig.modulos.filter(function(m) { return m.pergunta_wizard; });
+    },
+
+    applyPreset: function() {
+      if (!this.wizardSubsegment) return;
+      var sub = this.currentSubsegments().find(function(s) { return s.id === this.wizardSubsegment; }, this);
+      this.wizardAnswers = sub ? Object.assign({}, sub.preset) : {};
+    },
+
+    saveAdherence: function() {
+      var self = this;
+      return this.call(function() {
+        return API.postJson(
+          '/projects/' + self.currentProject.id + '/adherence',
+          { segment: self.wizardSegment, subsegment: self.wizardSubsegment, overrides: self.wizardAnswers },
+          self.token,
+        );
+      }).then(function(resp) {
+        if (!resp) return;
+        return resp.json().then(function(data) {
+          self.adherence = data;
+          self.toast('Perfil de aderencia salvo.');
+          return self.loadBatches();
+        });
+      });
+    },
+
+    activeModuleNames: function() {
+      if (!this.adherence.adherence_answers) return '';
+      return Object.entries(this.adherence.adherence_answers)
+        .filter(function(entry) { return entry[1] === true; })
+        .map(function(entry) { return entry[0]; }).join(', ');
+    },
+
+    loadBatches: function() {
+      var self = this;
+      return this.call(function() {
+        return API.get('/projects/' + self.currentProject.id + '/imports', self.token);
+      }).then(function(resp) {
+        if (resp) return resp.json().then(function(data) { self.batches = data; });
+      });
+    },
+
+    submitUpload: function() {
+      var self = this;
+      if (!this.uploadFile) { this.toast('Selecione um arquivo CSV.'); return; }
+      this.uploading = true;
+      var form = new FormData();
+      form.append('project_id', this.currentProject.id);
+      form.append('file', this.uploadFile);
+
+      return this.call(function() { return API.postForm('/imports', form, self.token); }).then(function(resp) {
+        self.uploading = false;
+        if (!resp) return;
+        return resp.json().then(function(batch) {
+          self.uploadFile = null;
+          self.toast('Importado: ' + batch.total_records + ' registros, ' + batch.exception_count + ' excecoes.');
+          return self.loadBatches().then(function() { return self.selectBatch(batch); });
+        });
+      });
+    },
+
+    selectBatch: function(batch) {
+      var self = this;
+      this.currentBatch = batch;
+      this.exceptionsOffset = 0;
+      return Promise.all([this.loadReport(), this.loadExceptions(), this.loadReadiness()]).then(function() {
+        self.$nextTick(function() { refreshIcons(); });
+      });
+    },
+
+    loadReport: function() {
+      var self = this;
+      return this.call(function() {
+        return API.get('/imports/' + self.currentBatch.id + '/report', self.token);
+      }).then(function(resp) {
+        if (resp) return resp.json().then(function(data) { self.report = data; });
+      });
+    },
+
+    loadReadiness: function() {
+      var self = this;
+      return this.call(function() {
+        return API.get('/imports/' + self.currentBatch.id + '/readiness', self.token);
+      }).then(function(resp) {
+        if (resp) return resp.json().then(function(data) { self.readiness = data; });
+      });
+    },
+
+    loadExceptions: function() {
+      var self = this;
+      var params = new URLSearchParams({
+        batch_id: this.currentBatch.id,
+        limit: this.exceptionsLimit,
+        offset: this.exceptionsOffset,
+      });
+      return this.call(function() { return API.get('/exceptions?' + params, self.token); }).then(function(resp) {
+        if (!resp) return;
+        self.exceptionsTotal = parseInt(resp.headers.get('X-Total-Count') || '0', 10);
+        return resp.json().then(function(data) { self.exceptions = data; });
+      });
+    },
+
+    changeExceptionsPage: function(direction) {
+      this.exceptionsOffset = Math.max(0, this.exceptionsOffset + direction * this.exceptionsLimit);
+      return this.loadExceptions();
+    },
+
+    resolveException: function(id, decision) {
+      var self = this;
+      return this.call(function() {
+        return API.postJson('/exceptions/' + id + '/resolve', { decision: decision }, self.token);
+      }).then(function(resp) {
+        if (!resp) return;
+        self.toast(decision === 'APPROVED' ? 'Excecao aprovada.' : 'Excecao rejeitada.');
+        return Promise.all([self.loadExceptions(), self.loadReadiness(), self.loadReport(), self.loadBatches()]);
+      });
+    },
+
+    generateScript: function() {
+      var self = this;
+      return fetch('/imports/' + this.currentBatch.id + '/script?format=' + this.scriptFormat, {
+        headers: { Authorization: 'Bearer ' + this.token },
+      }).then(function(resp) {
+        if (!resp.ok) {
+          return resp.text().then(function(text) { self.toast('Bloqueado: ' + text); });
+        }
+        var included = resp.headers.get('X-Records-Included');
+        var skipped = resp.headers.get('X-Records-Skipped');
+        var ext = self.scriptFormat === 'sql' ? 'sql' : 'txt';
+        return resp.blob().then(function(blob) {
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = 'winthor_carga_' + self.currentBatch.id.slice(0, 8) + '.' + ext;
+          a.click();
+          URL.revokeObjectURL(url);
+          self.toast('Script gerado: ' + included + ' incluidos, ' + skipped + ' ignorados.');
+        });
+      }).catch(function(e) {
+        self.toast('Erro ao gerar script: ' + e.message);
+      });
+    },
+
+    loadTeam: function() {
+      var self = this;
+      return this.call(function() { return API.get('/users', self.token); }).then(function(resp) {
+        if (resp) return resp.json().then(function(data) { self.teamUsers = data; });
+      }).then(function() {
+        self.$nextTick(function() { refreshIcons(); });
+      });
+    },
+
+    createTeamMember: function() {
+      var self = this;
+      var payload = {
+        name: this.newUserForm.name,
+        email: this.newUserForm.email,
+        password: this.newUserForm.password,
+        role: this.me.role === 'coordenador' ? 'analista' : this.newUserForm.role,
+      };
+      if (payload.role === 'analista' && this.me.role === 'diretor') {
+        payload.manager_email = this.newUserForm.manager_email;
+      }
+      return this.call(function() { return API.postJson('/users', payload, self.token); }).then(function(resp) {
+        if (!resp) return;
+        self.toast('Pessoa adicionada a equipe.');
+        self.newUserForm = { name: '', email: '', password: '', role: 'analista', manager_email: '' };
+        return self.loadTeam();
+      });
+    },
   };
 }
 
-async function uploadFile() {
-  const fileInput = document.getElementById("file-input");
-  if (!fileInput.files.length) { toast("Selecione um arquivo CSV."); return; }
-
-  const form = new FormData();
-  form.append("project_id", currentProject);
-  form.append("file", fileInput.files[0]);
-
-  try {
-    const resp = await api("/imports", { method: "POST", body: form });
-    const batch = await resp.json();
-    toast(`Importado: ${batch.total_records} registros, ${batch.exception_count} exceções.`);
-    fileInput.value = "";
-    await loadBatches();
-    selectBatch(batch.id);
-  } catch (err) {
-    toast("Erro no import: " + err.message);
-  }
+function refreshIcons() {
+  if (window.lucide) window.lucide.createIcons();
 }
-
-async function loadBatches() {
-  const resp = await api(`/projects/${currentProject}/imports`);
-  const batches = await resp.json();
-  const list = document.getElementById("batches-list");
-
-  if (!batches.length) {
-    list.innerHTML = '<p class="no-exceptions">Nenhum lote ainda. Envie um CSV acima.</p>';
-    return;
-  }
-
-  list.innerHTML = "";
-  batches.forEach(b => {
-    const row = document.createElement("div");
-    row.className = "batch-row";
-    row.innerHTML = `
-      <div>
-        <strong>${b.source_file}</strong><br>
-        <span style="color:var(--ink-soft); font-size:11.5px;">
-          ${b.total_records} registros · ${b.exception_count} exceções ·
-          readiness ${(b.data_readiness_score * 100).toFixed(0)}%
-        </span>
-      </div>
-      <button class="ghost">Abrir</button>
-    `;
-    row.querySelector("button").onclick = () => selectBatch(b.id);
-    list.appendChild(row);
-  });
-}
-
-async function selectBatch(batchId) {
-  currentBatch = batchId;
-  document.getElementById("detail-section").style.display = "block";
-  document.getElementById("script-section").style.display = "block";
-  await loadExceptions();
-}
-
-async function loadExceptions() {
-  const [reportResp, exResp, readyResp] = await Promise.all([
-    api(`/imports/${currentBatch}/report`),
-    api(`/exceptions?batch_id=${currentBatch}`),
-    api(`/imports/${currentBatch}/readiness`),
-  ]);
-  const report = await reportResp.json();
-  const exceptions = await exResp.json();
-  const readiness = await readyResp.json();
-
-  document.getElementById("stat-line").innerHTML = `
-    <div><b>${report.total_registros}</b>registros</div>
-    <div><b>${report.total_excecoes}</b>exceções</div>
-    <div><b>${(report.data_readiness_score * 100).toFixed(0)}%</b>data readiness</div>
-    <div><b>${report.excecoes_bloqueantes}</b>bloqueantes</div>
-  `;
-
-  const list = document.getElementById("exceptions-list");
-  if (!exceptions.length) {
-    list.innerHTML = '<p class="no-exceptions">Nenhuma exceção — lote limpo.</p>';
-  } else {
-    list.innerHTML = "";
-    exceptions.forEach(ex => {
-      const row = document.createElement("div");
-      row.className = "exception-row" + (ex.resolution_status !== "PENDING" ? " resolved" : "");
-      row.dataset.severity = ex.severity;
-      row.innerHTML = `
-        <div class="sev-tag">${ex.severity}</div>
-        <div class="exception-body">
-          <span class="reason">${ex.reason_code}</span>
-          <span class="desc">${ex.description}</span><br>
-          <span class="status-tag">${ex.record_id} · ${ex.resolution_status}${ex.resolved_by ? " · " + ex.resolved_by : ""}</span>
-        </div>
-        <div class="exception-actions">
-          ${ex.resolution_status === "PENDING" ? `
-            <button class="ghost" data-action="APPROVED">Aprovar</button>
-            <button class="ghost" data-action="REJECTED">Rejeitar</button>
-          ` : ""}
-        </div>
-      `;
-      row.querySelectorAll("button").forEach(btn => {
-        btn.onclick = () => resolveException(ex.id, btn.dataset.action);
-      });
-      list.appendChild(row);
-    });
-  }
-
-  const scriptNote = document.getElementById("script-note");
-  const scriptBtn = document.getElementById("generate-script-btn");
-  if (readiness.ready_for_dry_run) {
-    scriptNote.className = "note";
-    scriptNote.textContent = "Sem exceções bloqueantes pendentes. Pronto para gerar o script.";
-    scriptBtn.disabled = false;
-  } else {
-    scriptNote.className = "note blocked";
-    scriptNote.textContent = `${readiness.pending_blockers} exceção(ões) BLOCKER pendente(s). Resolva antes de gerar o script.`;
-    scriptBtn.disabled = true;
-  }
-  scriptBtn.onclick = generateScript;
-}
-
-async function resolveException(id, decision) {
-  const resolvedBy = prompt("Seu nome/usuário (para auditoria):", "consultor");
-  if (!resolvedBy) return;
-  try {
-    await api(`/exceptions/${id}/resolve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ decision, resolved_by: resolvedBy }),
-    });
-    toast(decision === "APPROVED" ? "Exceção aprovada." : "Exceção rejeitada.");
-    await loadExceptions();
-    await loadBatches();
-  } catch (err) {
-    toast("Erro: " + err.message);
-  }
-}
-
-async function generateScript() {
-  const format = document.getElementById("format-select").value;
-  try {
-    const resp = await fetch(`${API}/imports/${currentBatch}/script?format=${format}`);
-    if (!resp.ok) {
-      const text = await resp.text();
-      toast("Bloqueado: " + text);
-      return;
-    }
-    const blob = await resp.blob();
-    const included = resp.headers.get("X-Records-Included");
-    const skipped = resp.headers.get("X-Records-Skipped");
-    const ext = format === "sql" ? "sql" : "txt";
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `winthor_carga_${currentBatch.slice(0, 8)}.${ext}`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast(`Script gerado (${format}): ${included} registros incluídos, ${skipped} ignorados.`);
-  } catch (err) {
-    toast("Erro ao gerar script: " + err.message);
-  }
-}
-
 </script>
 </body>
 </html>
