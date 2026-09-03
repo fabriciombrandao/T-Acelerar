@@ -25,6 +25,8 @@ from sqlalchemy.orm import Session
 from app.db import ExceptionRow, ImportBatch, Project, ProductRecord, get_session, init_db
 from app.pipeline import run_pipeline_csv
 from app.repository import persist_pipeline_result
+from app.winthor.adherence import (load_modules_config, load_segments_config,
+                                    preset_for_subsegment)
 from app.winthor.oracle_generator import generate_insert_script
 
 STATIC_DIR = Path(__file__).resolve().parents[2] / "frontend"
@@ -59,11 +61,26 @@ def get_db():
 class ProjectOut(BaseModel):
     id: str
     name: str
+    segment: Optional[str] = None
+    subsegment: Optional[str] = None
+    adherence_answers: dict = {}
     model_config = ConfigDict(from_attributes=True)
 
 
 class ProjectIn(BaseModel):
     name: str
+
+
+class AdherenceIn(BaseModel):
+    segment: str
+    subsegment: str
+    overrides: Optional[dict] = None  # {module_id: bool} — sobrescreve o preset
+
+
+class AdherenceOut(BaseModel):
+    segment: Optional[str]
+    subsegment: Optional[str]
+    adherence_answers: dict
 
 
 class BatchSummary(BaseModel):
@@ -121,6 +138,52 @@ def list_project_imports(project_id: str, db: Session = Depends(get_db)):
         .order_by(ImportBatch.created_at.desc())
         .all()
     )
+
+
+# ---------- Wizard de aderência ----------
+
+@app.get("/adherence/segments")
+def get_segments():
+    """Segmentos/subsegmentos disponíveis, com preset de módulos por subsegmento."""
+    return load_segments_config()
+
+
+@app.get("/adherence/modules")
+def get_modules():
+    """Definição dos módulos de aderência do PCPRODUT (para montar o wizard)."""
+    return load_modules_config()
+
+
+@app.post("/projects/{project_id}/adherence", response_model=AdherenceOut)
+def set_project_adherence(project_id: str, payload: AdherenceIn, db: Session = Depends(get_db)):
+    """Salva segmento/subsegmento escolhidos + aplica preset, com overrides opcionais."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(404, "Projeto não encontrado.")
+
+    preset = preset_for_subsegment(payload.segment, payload.subsegment)
+    if not preset and payload.overrides is None:
+        raise HTTPException(400, "Segmento/subsegmento não encontrado em segments.json.")
+
+    merged = {**preset, **(payload.overrides or {})}
+
+    project.segment = payload.segment
+    project.subsegment = payload.subsegment
+    project.adherence_answers = merged
+    db.commit()
+    db.refresh(project)
+
+    return AdherenceOut(segment=project.segment, subsegment=project.subsegment,
+                         adherence_answers=project.adherence_answers)
+
+
+@app.get("/projects/{project_id}/adherence", response_model=AdherenceOut)
+def get_project_adherence(project_id: str, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(404, "Projeto não encontrado.")
+    return AdherenceOut(segment=project.segment, subsegment=project.subsegment,
+                         adherence_answers=project.adherence_answers or {})
 
 
 # ---------- Imports / Pipeline ----------

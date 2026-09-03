@@ -1,0 +1,136 @@
+{
+  "_fonte": "DA.RPI.010 — Layout para Migração de Dados, seção 4.5 (Produtos - PCPRODUT)",
+  "tabela": "PCPRODUT",
+  "modulos": [
+    {
+      "id": "cadastro_basico",
+      "nome": "Cadastro básico",
+      "sempre_aplicavel": true,
+      "pergunta_wizard": null,
+      "campos": [
+        { "field": "CODPROD", "required_by_layout": true, "type": "number" },
+        { "field": "DESCRICAO", "required_by_layout": true, "type": "string" },
+        { "field": "UNIDADE", "required_by_layout": true, "type": "string" },
+        { "field": "CODEPTO", "required_by_layout": true, "type": "number" },
+        { "field": "CODSEC", "required_by_layout": true, "type": "number" },
+        { "field": "CODFORNEC", "required_by_layout": true, "type": "number" }
+      ]
+    },
+    {
+      "id": "peso_dimensao",
+      "nome": "Peso e dimensão comercial",
+      "sempre_aplicavel": true,
+      "pergunta_wizard": null,
+      "campos": [
+        { "field": "EMBALAGEM", "required_by_layout": true, "type": "string" },
+        { "field": "PESOLIQ", "required_by_layout": true, "type": "number" },
+        { "field": "PESOBRUTO", "required_by_layout": true, "type": "number" },
+        { "field": "QTUNIT", "required_by_layout": true, "type": "number" },
+        { "field": "QTUNITCX", "required_by_layout": true, "type": "number" },
+        { "field": "UNIDADEMASTER", "required_by_layout": true, "type": "string" }
+      ]
+    },
+    {
+      "id": "enderecamento",
+      "nome": "Endereçamento físico (WMS simplificado)",
+      "sempre_aplicavel": false,
+      "pergunta_wizard": "Cliente controla endereço de estoque (rua/prédio/apto) no CD?",
+      "campos": [
+        { "field": "MODULO", "required_by_layout": true, "type": "number", "default_when_not_applicable": 1 },
+        { "field": "RUA", "required_by_layout": true, "type": "number", "default_when_not_applicable": 1 },
+        { "field": "NUMERO", "required_by_layout": true, "type": "number", "default_when_not_applicable": 1 },
+        { "field": "APTO", "required_by_layout": true, "type": "number", "default_when_not_applicable": 1 }
+      ]
+    },
+    {
+      "id": "paletizacao",
+      "nome": "Paletização/logística de carga",
+      "sempre_aplicavel": false,
+      "pergunta_wizard": "Cliente trabalha com carga paletizada padronizada?",
+      "campos": [
+        { "field": "LASTROPAL", "required_by_layout": true, "type": "number", "default_when_not_applicable": 1 },
+        { "field": "ALTURAPAL", "required_by_layout": true, "type": "number", "default_when_not_applicable": 1 },
+        { "field": "QTTOTPAL", "required_by_layout": false, "type": "number", "default_when_not_applicable": null }
+      ]
+    },
+    {
+      "id": "comissao_produto",
+      "nome": "Comissionamento por produto",
+      "sempre_aplicavel": false,
+      "pergunta_wizard": "Comissão de venda varia por produto (não só por vendedor/tabela)?",
+      "campos": [
+        { "field": "PCOMINT1", "required_by_layout": false, "type": "number", "default_when_not_applicable": 0 },
+        { "field": "PCOMREP1", "required_by_layout": false, "type": "number", "default_when_not_applicable": 0 },
+        { "field": "PCOMEXT1", "required_by_layout": false, "type": "number", "default_when_not_applicable": 0 }
+      ]
+    },
+    {
+      "id": "fiscal_ncm",
+      "nome": "Fiscal — NCM/classificação (obrigatório por lei)",
+      "sempre_aplicavel": true,
+      "pergunta_wizard": null,
+      "campos": [
+        { "field": "NBM", "required_by_layout": true, "type": "string" },
+        { "field": "CODNCMEX", "required_by_layout": true, "type": "string", "default_when_not_applicable": "000" },
+        { "field": "NATUREZAPRODUTO", "required_by_layout": true, "type": "string", "default_when_not_applicable": "OT" },
+        { "field": "UNIDADETRIBUTAVEL", "required_by_layout": true, "type": "string" },
+        { "field": "CLASSIFICFISCAL", "required_by_layout": false, "type": "string" }
+      ]
+    },
+    {
+      "id": "fiscal_pis_cofins_retido",
+      "nome": "Fiscal — PIS/COFINS retido na compra",
+      "sempre_aplicavel": false,
+      "derivado_do_ncm": true,
+      "pergunta_wizard": null,
+      "nota": "NÃO perguntar no wizard. Derivar automaticamente de uma lista de NCMs monofásicos/com retenção. Ver app/winthor/pis_cofins_monofasico.py.",
+      "campos": [
+        { "field": "PISCOFINSRETIDO", "required_by_layout": false, "type": "string", "default_when_not_applicable": "N" }
+      ]
+    },
+    {
+      "id": "compra_custos",
+      "nome": "Percentuais complexos de compra (ST/IPI/frete/desconto)",
+      "sempre_aplicavel": false,
+      "pergunta_wizard": "Os percentuais de ST/IPI/frete/desconto de compra já existem tratados e confiáveis no sistema legado?",
+      "campos": [
+        { "field": "PERCIPI", "required_by_layout": false, "type": "number", "default_when_not_applicable": 0 },
+        { "field": "PERICM", "required_by_layout": false, "type": "number", "default_when_not_applicable": 0 },
+        { "field": "PERCDESC", "required_by_layout": false, "type": "number", "default_when_not_applicable": 0 },
+        { "field": "PERCST", "required_by_layout": false, "type": "number", "default_when_not_applicable": 0 },
+        { "field": "PERCBON", "required_by_layout": false, "type": "number", "default_when_not_applicable": 0 },
+        { "field": "PERCFRETE", "required_by_layout": false, "type": "number", "default_when_not_applicable": 0 }
+      ]
+    },
+    {
+      "id": "validade_lote",
+      "nome": "Validade/lote (perecível)",
+      "sempre_aplicavel": false,
+      "pergunta_wizard": "Cliente controla validade de produto (perecível/farma)?",
+      "campos": [
+        { "field": "PRAZOVAL", "required_by_layout": false, "type": "number", "default_when_not_applicable": null }
+      ]
+    },
+    {
+      "id": "identificacao_alternativa",
+      "nome": "Identificação alternativa (EAN, código do fabricante)",
+      "sempre_aplicavel": true,
+      "pergunta_wizard": null,
+      "campos": [
+        { "field": "CODAUXILIAR", "required_by_layout": true, "type": "number" },
+        { "field": "CODFAB", "required_by_layout": false, "type": "string" }
+      ]
+    },
+    {
+      "id": "outros_opcionais",
+      "nome": "Outros campos opcionais do layout",
+      "sempre_aplicavel": true,
+      "pergunta_wizard": null,
+      "campos": [
+        { "field": "DTCADASTRO", "required_by_layout": false, "type": "date" },
+        { "field": "VOLUME", "required_by_layout": false, "type": "number" },
+        { "field": "OBS2", "required_by_layout": false, "type": "string", "default_when_not_applicable": "  " }
+      ]
+    }
+  ]
+}

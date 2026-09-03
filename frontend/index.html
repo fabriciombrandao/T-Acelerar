@@ -112,6 +112,16 @@
     background: var(--paper);
   }
 
+  select {
+    font-family: inherit;
+    font-size: 12.5px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--ink);
+  }
+
   /* ---------- Main ---------- */
   main {
     padding: 32px 40px;
@@ -366,14 +376,17 @@ async function selectProject(id, name) {
 function renderProjectView(name) {
   const main = document.getElementById("main");
   main.innerHTML = `
-    <section>
-      <h2>${name}</h2>
+    <section id="adherence-section">
+      <h2>Perfil de aderência — ${name}</h2>
+      <div id="adherence-content">Carregando...</div>
+    </section>
+    <section id="upload-section" style="display:none;">
       <div class="upload-zone">
         <input type="file" id="file-input" accept=".csv">
         <button class="primary" id="upload-btn">Enviar e validar</button>
       </div>
     </section>
-    <section id="batches-section">
+    <section id="batches-section" style="display:none;">
       <h2>Lotes importados</h2>
       <div id="batches-list"></div>
     </section>
@@ -392,7 +405,134 @@ function renderProjectView(name) {
   `;
 
   document.getElementById("upload-btn").onclick = uploadFile;
+  loadAdherence();
+}
+
+async function loadAdherence() {
+  const resp = await api(`/projects/${currentProject}/adherence`);
+  const adherence = await resp.json();
+
+  if (adherence.segment) {
+    renderAdherenceSummary(adherence);
+  } else {
+    await renderAdherenceWizard();
+  }
+}
+
+function unlockUploadFlow() {
+  document.getElementById("upload-section").style.display = "block";
+  document.getElementById("batches-section").style.display = "block";
   loadBatches();
+}
+
+function renderAdherenceSummary(adherence) {
+  const applicableModules = Object.entries(adherence.adherence_answers)
+    .filter(([, v]) => v === true).map(([k]) => k);
+
+  document.getElementById("adherence-content").innerHTML = `
+    <p style="color:var(--ink-soft); font-size:12.5px;">
+      ${adherence.segment} / ${adherence.subsegment} —
+      módulos ativos: ${applicableModules.length ? applicableModules.join(", ") : "nenhum (só cadastro básico + fiscal)"}
+    </p>
+    <button class="ghost" id="edit-adherence-btn">Editar perfil de aderência</button>
+  `;
+  document.getElementById("edit-adherence-btn").onclick = renderAdherenceWizard;
+  unlockUploadFlow();
+}
+
+async function renderAdherenceWizard() {
+  const [segResp, modResp] = await Promise.all([
+    api("/adherence/segments"),
+    api("/adherence/modules"),
+  ]);
+  const segmentsConfig = await segResp.json();
+  const modulesConfig = await modResp.json();
+  const wizardModules = modulesConfig.modulos.filter(m => m.pergunta_wizard);
+
+  const content = document.getElementById("adherence-content");
+  content.innerHTML = `
+    <p style="color:var(--ink-soft); font-size:12.5px; max-width:60ch;">
+      O layout do Winthor é fixo — isto não remove campo do arquivo, decide
+      o que é exigido como obrigatório e o que recebe valor padrão automático.
+    </p>
+    <div style="display:flex; gap:10px; margin:14px 0;">
+      <select id="segment-select"><option value="">Segmento...</option></select>
+      <select id="subsegment-select"><option value="">Subsegmento...</option></select>
+    </div>
+    <div id="modules-checklist"></div>
+    <button class="primary" id="save-adherence-btn" style="margin-top:14px;" disabled>Salvar perfil</button>
+  `;
+
+  const segmentSelect = document.getElementById("segment-select");
+  segmentsConfig.segmentos.forEach(s => {
+    const opt = document.createElement("option");
+    opt.value = s.id; opt.textContent = s.nome;
+    segmentSelect.appendChild(opt);
+  });
+
+  let currentPreset = {};
+
+  function renderChecklist(preset) {
+    currentPreset = preset;
+    const list = document.getElementById("modules-checklist");
+    list.innerHTML = "";
+    wizardModules.forEach(m => {
+      const row = document.createElement("div");
+      row.className = "batch-row";
+      const checked = preset[m.id] ? "checked" : "";
+      row.innerHTML = `
+        <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+          <input type="checkbox" data-module="${m.id}" ${checked}>
+          <span>${m.pergunta_wizard}</span>
+        </label>
+      `;
+      list.appendChild(row);
+    });
+    document.getElementById("save-adherence-btn").disabled = false;
+  }
+
+  segmentSelect.onchange = () => {
+    const subSelect = document.getElementById("subsegment-select");
+    subSelect.innerHTML = '<option value="">Subsegmento...</option>';
+    const seg = segmentsConfig.segmentos.find(s => s.id === segmentSelect.value);
+    if (!seg) return;
+    seg.subsegmentos.forEach(sub => {
+      const opt = document.createElement("option");
+      opt.value = sub.id; opt.textContent = sub.nome;
+      opt.dataset.preset = JSON.stringify(sub.preset);
+      subSelect.appendChild(opt);
+    });
+  };
+
+  content.querySelector("#subsegment-select").addEventListener("change", (e) => {
+    const opt = e.target.selectedOptions[0];
+    if (!opt || !opt.dataset.preset) return;
+    renderChecklist(JSON.parse(opt.dataset.preset));
+  });
+
+  document.getElementById("save-adherence-btn").onclick = async () => {
+    const segment = segmentSelect.value;
+    const subsegment = document.getElementById("subsegment-select").value;
+    if (!segment || !subsegment) { toast("Selecione segmento e subsegmento."); return; }
+
+    const overrides = {};
+    document.querySelectorAll("#modules-checklist input[type=checkbox]").forEach(cb => {
+      overrides[cb.dataset.module] = cb.checked;
+    });
+
+    try {
+      const resp = await api(`/projects/${currentProject}/adherence`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ segment, subsegment, overrides }),
+      });
+      const saved = await resp.json();
+      toast("Perfil de aderência salvo.");
+      renderAdherenceSummary(saved);
+    } catch (err) {
+      toast("Erro: " + err.message);
+    }
+  };
 }
 
 async function uploadFile() {

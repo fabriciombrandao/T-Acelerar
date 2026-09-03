@@ -50,6 +50,15 @@ class CanonicalProduct(BaseModel):
     origin: Optional[str] = None
     status: RecordStatus = RecordStatus.RAW
 
+    # Campos específicos do layout Winthor (PCPRODUT tem ~40 campos; só uma
+    # fração vira campo "de primeira classe" no canônico, porque são os que
+    # o saneamento/dedup/validação de negócio genérico usam). O resto
+    # (endereçamento, paletização, percentuais de compra, etc.) fica aqui,
+    # chaveado pelo nome do campo Winthor (ex: "LASTROPAL", "CODSEC"),
+    # e é regido pelos módulos de aderência (app/winthor/adherence.py),
+    # não pelo pipeline de saneamento genérico.
+    extra: dict = Field(default_factory=dict)
+
     source_file: Optional[str] = None
     import_batch_id: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

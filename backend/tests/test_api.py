@@ -175,3 +175,67 @@ def test_generate_script_excludes_rejected_records(client):
     assert resp.status_code == 200
     assert int(resp.headers["X-Records-Skipped"]) >= 1
     assert f"'{blocker_record_id}'" not in resp.text
+
+
+# ---------- Wizard de aderência ----------
+
+def test_get_segments_returns_config(client):
+    resp = client.get("/adherence/segments")
+    assert resp.status_code == 200
+    ids = {s["id"] for s in resp.json()["segmentos"]}
+    assert {"distribuicao", "varejo"} <= ids
+
+
+def test_get_modules_returns_config(client):
+    resp = client.get("/adherence/modules")
+    assert resp.status_code == 200
+    ids = {m["id"] for m in resp.json()["modulos"]}
+    assert "enderecamento" in ids
+
+
+def test_set_adherence_applies_preset(client):
+    project_id = _create_project(client)
+    resp = client.post(
+        f"/projects/{project_id}/adherence",
+        json={"segment": "varejo", "subsegment": "loja_unica"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["adherence_answers"]["enderecamento"] is False
+    assert body["adherence_answers"]["paletizacao"] is False
+
+
+def test_set_adherence_with_override_beats_preset(client):
+    project_id = _create_project(client)
+    resp = client.post(
+        f"/projects/{project_id}/adherence",
+        json={
+            "segment": "varejo", "subsegment": "loja_unica",
+            "overrides": {"enderecamento": True},
+        },
+    )
+    body = resp.json()
+    assert body["adherence_answers"]["enderecamento"] is True  # override venceu o preset
+    assert body["adherence_answers"]["paletizacao"] is False   # resto do preset intacto
+
+
+def test_get_adherence_after_set_persists(client):
+    project_id = _create_project(client)
+    client.post(
+        f"/projects/{project_id}/adherence",
+        json={"segment": "distribuicao", "subsegment": "distribuidor_fmcg"},
+    )
+    resp = client.get(f"/projects/{project_id}/adherence")
+    body = resp.json()
+    assert body["segment"] == "distribuicao"
+    assert body["subsegment"] == "distribuidor_fmcg"
+    assert body["adherence_answers"]["enderecamento"] is True
+
+
+def test_set_adherence_invalid_subsegment_returns_400(client):
+    project_id = _create_project(client)
+    resp = client.post(
+        f"/projects/{project_id}/adherence",
+        json={"segment": "distribuicao", "subsegment": "nao_existe"},
+    )
+    assert resp.status_code == 400

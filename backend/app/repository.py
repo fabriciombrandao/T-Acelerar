@@ -60,6 +60,7 @@ def _product_to_row(p: CanonicalProduct, batch_id: str) -> ProductRecord:
         origin_field=p.origin,
         status=p.status.value if hasattr(p.status, "value") else p.status,
         provenance=[pr.model_dump(mode="json") for pr in p.provenance],
+        extra=p.extra,
     )
 
 

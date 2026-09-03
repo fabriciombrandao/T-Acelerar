@@ -1,0 +1,116 @@
+{
+  "_nota": "Presets pré-marcam o wizard de aderência; o cliente sempre pode sobrescrever por módulo. Baseado em conhecimento de domínio de varejo/distribuição — módulo fiscal_pis_cofins_retido não aparece aqui porque é derivado do NCM, não escolhido pelo cliente.",
+  "segmentos": [
+    {
+      "id": "distribuicao",
+      "nome": "Atacado / Distribuição",
+      "subsegmentos": [
+        {
+          "id": "distribuidor_fmcg",
+          "nome": "Distribuidor multicategoria (FMCG — mercearia, higiene, limpeza)",
+          "preset": {
+            "enderecamento": true,
+            "paletizacao": true,
+            "comissao_produto": true,
+            "compra_custos": true,
+            "validade_lote": false
+          }
+        },
+        {
+          "id": "atacarejo",
+          "nome": "Atacarejo (cash & carry)",
+          "preset": {
+            "enderecamento": true,
+            "paletizacao": true,
+            "comissao_produto": false,
+            "compra_custos": true,
+            "validade_lote": false
+          }
+        },
+        {
+          "id": "distribuidor_st_forte",
+          "nome": "Distribuidor especializado com ST forte (bebidas, autopeças, cosméticos/perfumaria, material de construção)",
+          "preset": {
+            "enderecamento": true,
+            "paletizacao": true,
+            "comissao_produto": true,
+            "compra_custos": true,
+            "validade_lote": false
+          }
+        },
+        {
+          "id": "distribuidor_perecivel",
+          "nome": "Distribuidor de perecíveis/frios",
+          "preset": {
+            "enderecamento": true,
+            "paletizacao": false,
+            "comissao_produto": true,
+            "compra_custos": true,
+            "validade_lote": true
+          }
+        },
+        {
+          "id": "representacao_comercial",
+          "nome": "Representação comercial (broker, sem estoque próprio)",
+          "preset": {
+            "enderecamento": false,
+            "paletizacao": false,
+            "comissao_produto": true,
+            "compra_custos": false,
+            "validade_lote": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "varejo",
+      "nome": "Varejo",
+      "subsegmentos": [
+        {
+          "id": "loja_unica",
+          "nome": "Loja única / pequeno varejista",
+          "preset": {
+            "enderecamento": false,
+            "paletizacao": false,
+            "comissao_produto": false,
+            "compra_custos": false,
+            "validade_lote": false
+          }
+        },
+        {
+          "id": "rede_lojas",
+          "nome": "Rede de lojas (multi-loja, mesma bandeira)",
+          "preset": {
+            "enderecamento": false,
+            "paletizacao": false,
+            "comissao_produto": false,
+            "compra_custos": false,
+            "validade_lote": false
+          }
+        },
+        {
+          "id": "varejo_alimentar",
+          "nome": "Varejo alimentar / supermercado",
+          "preset": {
+            "enderecamento": false,
+            "paletizacao": false,
+            "comissao_produto": false,
+            "compra_custos": false,
+            "validade_lote": true
+          }
+        },
+        {
+          "id": "varejo_farmacia",
+          "nome": "Varejo farmacêutico",
+          "preset": {
+            "enderecamento": false,
+            "paletizacao": false,
+            "comissao_produto": false,
+            "compra_custos": false,
+            "validade_lote": true
+          }
+        }
+      ]
+    }
+  ]
+}

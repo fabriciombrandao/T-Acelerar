@@ -27,9 +27,51 @@ Abra `http://127.0.0.1:8000` no navegador. A própria API serve a interface.
 | Persistência (SQLAlchemy/SQLite→Postgres) | `app/db.py`, `app/repository.py` | ✅ funcional |
 | Exception Queue com aprovação/rejeição | `app/api.py` | ✅ funcional |
 | Readiness Gate (bloqueia script com BLOCKER pendente) | `app/api.py` | ✅ funcional |
-| **Gerador de script Oracle (Winthor Adapter)** | `app/winthor/oracle_generator.py` | ✅ funcional |
+| **Gerador de script Oracle (Winthor Adapter)** | `app/winthor/oracle_generator.py` | ⚠️ obsoleto — ver pendência abaixo |
+| **Wizard de aderência por segmento/subsegmento** | `app/winthor/adherence.py`, `mappings/winthor/segments.json` | ✅ funcional (config + API + UI) |
+| **Derivação fiscal automática (PIS/COFINS por NCM)** | `app/winthor/pis_cofins_monofasico.py` | ⚠️ amostra ilustrativa, não valida fiscalmente |
 | SPED/XML Fiscal Evidence Layer | — | ❌ não implementado |
 | IA (classificação/sugestão) | — | ❌ não implementado (pontos de extensão isolados) |
+
+## ⚠️ Mudança de arquitetura — Winthor NÃO usa INSERT SQL
+
+O layout oficial (`DD_WINTHOR.md`, documento DA.RPI.010) confirma que a carga no
+Winthor é feita por **arquivo texto delimitado** (`#` ou `;`, validado pelo programa
+`VALIDADORMIGRACAO`) — não por script de INSERT direto no Oracle.
+
+**`app/winthor/oracle_generator.py` está obsoleto** e precisa ser substituído por um
+gerador de arquivo texto posicional, respeitando: sem zero à esquerda em campo
+numérico, sem padding de espaço, decimal com ponto, data `DD/MM/YYYY`, campo
+obrigatório nunca em branco mas também nunca substituído por espaço (só o
+separador). Ainda não implementado — depende de fechar o mapeamento completo
+dos ~40 campos do PCPRODUT primeiro (ver wizard de aderência abaixo).
+
+## Wizard de aderência — por que existe
+
+O layout do PCPRODUT tem ~40 campos, boa parte obrigatória, mas nem todo cliente
+tem o processo correspondente (ex: endereçamento físico de estoque, paletização,
+comissão por produto). Como o layout é posicional fixo, **o wizard não remove
+campo do arquivo** — ele decide, por módulo de processo:
+
+- Módulo **aplicável** ao cliente + campo obrigatório ausente → vira **BLOCKER**
+  na Exception Queue (alguém precisa decidir).
+- Módulo **não aplicável** → aplica o **default configurado** automaticamente
+  (ex: `LASTROPAL=1`, conforme o próprio documento Winthor recomenda).
+- Módulos fiscais obrigatórios por lei (NCM) nunca passam pelo wizard — são
+  sempre exigidos.
+- `PISCOFINSRETIDO` nunca é perguntado — é **derivado automaticamente do NCM**
+  (é característica do produto, não escolha de processo do cliente).
+
+Presets por segmento/subsegmento (`mappings/winthor/segments.json`) pré-marcam o
+wizard com base em conhecimento de domínio de varejo/distribuição, mas o cliente
+sempre pode sobrescrever por módulo.
+
+**Pendência**: o wizard e o motor de aderência (`app/winthor/adherence.py`) estão
+implementados e testados isoladamente, mas **ainda não estão acoplados ao
+pipeline de import** (`/imports`). Isso exige primeiro estender a ingestão para
+mapear os ~40 campos do PCPRODUT (hoje só ~10 campos canônicos são capturados),
+senão toda importação dispararia BLOCKER em cascata para campos que a fonte de
+dados do cliente nunca teve a intenção de fornecer.
 
 ## Fluxo de uso
 
@@ -42,13 +84,13 @@ Abra `http://127.0.0.1:8000` no navegador. A própria API serve a interface.
 5. O `.sql` gerado é rodado manualmente no Oracle do cliente (fora desta aplicação —
    não há execução automática contra banco de produção, por design).
 
-## ⚠️ Pendência crítica: mapping Winthor é placeholder
+## ⚠️ Pendência crítica: mapping Winthor é placeholder E formato de saída está errado
 
-`mappings/winthor/produto.json` tem nomes de tabela/coluna **não confirmados**
-(`PCPRODUT`, `CODPROD`, etc. — plausíveis para o layout Winthor, mas chutados).
-**Não rodar este script contra um Oracle real antes de validar contra o
-dicionário oficial** (próximos passos, item 1 do documento original). Trocar o
-JSON depois de confirmado não exige mudar código — é só configuração.
+`mappings/winthor/produto.json` (usado pelo `oracle_generator.py` obsoleto) tem
+nomes de tabela/coluna que eram um chute. O layout oficial confirmou o schema
+real de `PCPRODUT` (`mappings/winthor/pcprodut_modules.json` já reflete os campos
+corretos, agrupados em módulos de aderência). Mas o formato de saída também
+mudou: não é mais INSERT SQL, é arquivo texto delimitado. Ver seção acima.
 
 ## API
 

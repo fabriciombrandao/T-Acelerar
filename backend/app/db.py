@@ -31,6 +31,9 @@ class Project(Base):
 
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
+    segment = Column(String, nullable=True)
+    subsegment = Column(String, nullable=True)
+    adherence_answers = Column(JSON, default=dict)  # {module_id: bool}
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     batches = relationship("ImportBatch", back_populates="project", cascade="all, delete-orphan")
@@ -74,6 +77,7 @@ class ProductRecord(Base):
     origin_field = Column(String)
     status = Column(String, default="RAW")
     provenance = Column(JSON, default=list)
+    extra = Column(JSON, default=dict)
 
     batch = relationship("ImportBatch", back_populates="products")
 
