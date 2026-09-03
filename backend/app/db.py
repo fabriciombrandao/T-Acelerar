@@ -9,8 +9,8 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
-from sqlalchemy import (JSON, Column, DateTime, Float, ForeignKey, Integer,
-                         String, create_engine)
+from sqlalchemy import (JSON, Boolean, Column, DateTime, Float, ForeignKey,
+                         Integer, String, create_engine)
 from sqlalchemy.orm import DeclarativeBase, Session, relationship, sessionmaker
 
 DATABASE_URL = os.environ.get("WINTHOR_DB_URL", "sqlite:///./winthor_data_deploy.db")
@@ -24,6 +24,18 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 class Base(DeclarativeBase):
     pass
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True)
+    email = Column(String, nullable=False, unique=True, index=True)
+    name = Column(String, nullable=False)
+    password_hash = Column(String, nullable=False)
+    is_admin = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class Project(Base):
@@ -110,3 +122,12 @@ def init_db() -> None:
 
 def get_session() -> Session:
     return SessionLocal()
+
+
+def get_db():
+    """Dependência FastAPI — sessão por request, fechada ao final."""
+    session = get_session()
+    try:
+        yield session
+    finally:
+        session.close()

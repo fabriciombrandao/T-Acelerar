@@ -284,14 +284,63 @@
     pointer-events: none;
   }
   .toast.show { opacity: 1; transform: translateY(0); }
+
+  /* ---------- Login ---------- */
+  .login-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: var(--paper);
+  }
+
+  .login-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 280px;
+    padding: 28px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+
+  .login-card h1 { font-size: 17px; margin-bottom: 0; }
+  .login-card .subtitle { color: var(--ink-soft); font-size: 11.5px; margin-bottom: 10px; }
+
+  .login-card input {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--paper);
+  }
+
+  .login-error {
+    color: var(--danger);
+    font-size: 11.5px;
+    min-height: 14px;
+  }
 </style>
 </head>
 <body>
 
-<div class="app">
+<div class="login-screen" id="login-screen">
+  <form class="login-card" id="login-form">
+    <h1>Winthor Data Deploy</h1>
+    <div class="subtitle">Console de migração</div>
+    <input type="email" id="login-email" placeholder="Email" required autocomplete="username">
+    <input type="password" id="login-password" placeholder="Senha" required autocomplete="current-password">
+    <button class="primary" type="submit">Entrar</button>
+    <div class="login-error" id="login-error"></div>
+  </form>
+</div>
+
+<div class="app" id="app-shell" style="display:none;">
   <aside class="sidebar">
     <h1>Winthor Data Deploy</h1>
-    <div class="subtitle">Console de migração — MVP</div>
+    <div class="subtitle" id="user-subtitle">Console de migração</div>
 
     <ul class="project-list" id="project-list"></ul>
 
@@ -299,6 +348,8 @@
       <input type="text" id="new-project-name" placeholder="Nome do projeto (cliente)" required>
       <button class="ghost" type="submit">+</button>
     </form>
+
+    <button class="ghost" id="logout-btn" style="width:100%; margin-top:24px;">Sair</button>
   </aside>
 
   <main id="main">
@@ -324,8 +375,22 @@ function toast(msg) {
   setTimeout(() => el.classList.remove("show"), 3200);
 }
 
-async function api(path, opts) {
-  const resp = await fetch(API + path, opts);
+function getToken() { return localStorage.getItem("winthor_token"); }
+function setToken(t) { localStorage.setItem("winthor_token", t); }
+function clearToken() { localStorage.removeItem("winthor_token"); }
+
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const resp = await fetch(API + path, { ...opts, headers });
+
+  if (resp.status === 401) {
+    clearToken();
+    showLoginScreen();
+    throw new Error("Sessão expirada. Faça login novamente.");
+  }
   if (!resp.ok && resp.headers.get("content-type")?.includes("application/json")) {
     const err = await resp.json();
     throw new Error(err.detail || resp.statusText);
@@ -333,6 +398,56 @@ async function api(path, opts) {
   if (!resp.ok) throw new Error(await resp.text());
   return resp;
 }
+
+function showLoginScreen() {
+  document.getElementById("login-screen").style.display = "flex";
+  document.getElementById("app-shell").style.display = "none";
+}
+
+async function showAppShell() {
+  document.getElementById("login-screen").style.display = "none";
+  document.getElementById("app-shell").style.display = "grid";
+  try {
+    const me = await (await api("/auth/me")).json();
+    document.getElementById("user-subtitle").textContent = `${me.name}${me.is_admin ? " · admin" : ""}`;
+  } catch (e) { /* já tratado por api() se der 401 */ }
+  loadProjects();
+}
+
+document.getElementById("login-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const email = document.getElementById("login-email").value;
+  const password = document.getElementById("login-password").value;
+  const errorEl = document.getElementById("login-error");
+  errorEl.textContent = "";
+
+  try {
+    const form = new URLSearchParams();
+    form.append("username", email);
+    form.append("password", password);
+    const resp = await fetch(`${API}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form,
+    });
+    if (!resp.ok) throw new Error("Email ou senha incorretos.");
+    const data = await resp.json();
+    setToken(data.access_token);
+    showAppShell();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  }
+};
+
+document.getElementById("logout-btn").onclick = () => {
+  clearToken();
+  currentProject = null;
+  currentBatch = null;
+  showLoginScreen();
+};
+
+// Inicialização: se já tem token salvo, tenta entrar direto.
+if (getToken()) { showAppShell(); } else { showLoginScreen(); }
 
 async function loadProjects() {
   const resp = await api("/projects");
@@ -700,7 +815,6 @@ async function generateScript() {
   }
 }
 
-loadProjects();
 </script>
 </body>
 </html>

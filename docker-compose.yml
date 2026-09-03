@@ -1,5 +1,8 @@
 version: "3.9"
 
+# Perfil "compartilhado" (>1 consultor): Postgres é obrigatório, não opcional.
+# SQLite trava com escrita concorrente de vários consultores ao mesmo tempo.
+
 services:
   app:
     build: .
@@ -7,25 +10,24 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Troque para Postgres em produção (ver .env.example). SQLite é ok
-      # para o piloto/MVP com um cliente por vez.
-      WINTHOR_DB_URL: ${WINTHOR_DB_URL:-sqlite:////app/data/winthor_data_deploy.db}
+      WINTHOR_DB_URL: postgresql+psycopg2://winthor:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}@db:5432/winthor_data_deploy
+      WINTHOR_JWT_SECRET: ${WINTHOR_JWT_SECRET:?defina WINTHOR_JWT_SECRET no .env}
+      WINTHOR_BOOTSTRAP_SECRET: ${WINTHOR_BOOTSTRAP_SECRET:-}
+    depends_on:
+      - db
     volumes:
-      - winthor_data:/app/data
       - winthor_output:/app/output
 
-  # Descomente quando for trocar SQLite por Postgres real.
-  # db:
-  #   image: postgres:16-alpine
-  #   restart: unless-stopped
-  #   environment:
-  #     POSTGRES_DB: winthor_data_deploy
-  #     POSTGRES_USER: winthor
-  #     POSTGRES_PASSWORD: troque_isto
-  #   volumes:
-  #     - winthor_postgres:/var/lib/postgresql/data
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: winthor_data_deploy
+      POSTGRES_USER: winthor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    volumes:
+      - winthor_postgres:/var/lib/postgresql/data
 
 volumes:
-  winthor_data:
+  winthor_postgres:
   winthor_output:
-  # winthor_postgres:

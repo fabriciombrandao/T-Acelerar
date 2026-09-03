@@ -11,17 +11,27 @@ SAMPLE_CSV = Path(__file__).parent.parent.parent / "sample_data" / "produtos_exe
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
-    """Cada teste roda com um banco SQLite isolado em arquivo temporário."""
+    """Cada teste roda com um banco SQLite isolado, um admin bootstrap já
+    criado, e o TestClient já autenticado (headers persistem entre chamadas)."""
     db_file = tmp_path / f"test_{uuid.uuid4().hex}.db"
     monkeypatch.setenv("WINTHOR_DB_URL", f"sqlite:///{db_file}")
+    monkeypatch.setenv("WINTHOR_BOOTSTRAP_SECRET", "test-secret")
 
-    for mod in ["app.db", "app.repository", "app.api"]:
+    for mod in ["app.db", "app.auth", "app.repository", "app.api"]:
         sys.modules.pop(mod, None)
 
     from fastapi.testclient import TestClient
     import app.api as api_module
 
     with TestClient(api_module.app) as c:
+        c.post("/auth/bootstrap-admin", json={
+            "email": "admin@teste.com", "name": "Admin Teste",
+            "password": "senha-forte-123", "bootstrap_secret": "test-secret",
+        })
+        token = c.post("/auth/login", data={
+            "username": "admin@teste.com", "password": "senha-forte-123",
+        }).json()["access_token"]
+        c.headers.update({"Authorization": f"Bearer {token}"})
         yield c
 
 
@@ -91,12 +101,12 @@ def test_resolve_exception_updates_status(client):
 
     resp = client.post(
         f"/exceptions/{target['id']}/resolve",
-        json={"decision": "APPROVED", "resolved_by": "consultor.teste", "note": "ok"},
+        json={"decision": "APPROVED", "note": "ok"},
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["resolution_status"] == "APPROVED"
-    assert body["resolved_by"] == "consultor.teste"
+    assert body["resolved_by"] == "admin@teste.com"
 
 
 def test_readiness_gate_blocks_on_pending_blocker(client):
@@ -115,7 +125,7 @@ def test_readiness_gate_blocks_on_pending_blocker(client):
         if e["severity"] == "BLOCKER":
             client.post(
                 f"/exceptions/{e['id']}/resolve",
-                json={"decision": "APPROVED", "resolved_by": "consultor.teste"},
+                json={"decision": "APPROVED"},
             )
 
     gate_after = client.get(f"/imports/{batch_id}/readiness").json()
@@ -142,7 +152,7 @@ def test_generate_script_defaults_to_texto_format(client):
         if e["severity"] == "BLOCKER":
             client.post(
                 f"/exceptions/{e['id']}/resolve",
-                json={"decision": "APPROVED", "resolved_by": "consultor.teste"},
+                json={"decision": "APPROVED"},
             )
 
     resp = client.get(f"/imports/{batch_id}/script")
@@ -163,7 +173,7 @@ def test_generate_script_sql_format_still_available(client):
         if e["severity"] == "BLOCKER":
             client.post(
                 f"/exceptions/{e['id']}/resolve",
-                json={"decision": "APPROVED", "resolved_by": "consultor.teste"},
+                json={"decision": "APPROVED"},
             )
 
     resp = client.get(f"/imports/{batch_id}/script", params={"format": "sql"})
@@ -196,7 +206,7 @@ def test_generate_script_excludes_rejected_records(client):
             blocker_record_id = e["record_id"]
         client.post(
             f"/exceptions/{e['id']}/resolve",
-            json={"decision": decision, "resolved_by": "consultor.teste"},
+            json={"decision": decision},
         )
 
     resp = client.get(f"/imports/{batch_id}/script", params={"format": "sql"})

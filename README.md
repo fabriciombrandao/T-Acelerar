@@ -29,9 +29,50 @@ Abra `http://127.0.0.1:8000` no navegador. A própria API serve a interface.
 | Readiness Gate (bloqueia script com BLOCKER pendente) | `app/api.py` | ✅ funcional |
 | **Dois formatos de exportação: texto oficial + SQL** | `app/winthor/text_file_generator.py`, `app/winthor/oracle_generator.py` | ✅ funcional |
 | **Wizard de aderência por segmento/subsegmento** | `app/winthor/adherence.py`, `mappings/winthor/segments.json` | ✅ funcional (config + API + UI) |
+| **Autenticação (login, JWT, admin/consultor)** | `app/auth.py` | ✅ funcional |
 | **Derivação fiscal automática (PIS/COFINS por NCM)** | `app/winthor/pis_cofins_monofasico.py` | ⚠️ amostra ilustrativa, não valida fiscalmente |
 | SPED/XML Fiscal Evidence Layer | — | ❌ não implementado |
 | IA (classificação/sugestão) | — | ❌ não implementado (pontos de extensão isolados) |
+
+## Onde a aplicação roda — decisão registrada
+
+Time de >5 consultores, projetos de clientes diferentes em paralelo →
+**VPS compartilhado**, não local. Isso trouxe dois pré-requisitos que passam
+a ser obrigatórios (não "melhoria futura"):
+
+1. **Autenticação** — sem isso, qualquer pessoa com a URL do VPS mexe em
+   dado de cliente de qualquer projeto. Implementado (`app/auth.py`).
+2. **Postgres, não SQLite** — SQLite trava com escrita concorrente de vários
+   consultores ao mesmo tempo. `docker-compose.yml` já assume Postgres como
+   padrão para este perfil (SQLite continua sendo o default só para
+   desenvolvimento local sozinho).
+
+## Autenticação
+
+Modelo fechado, sem auto-cadastro — admin cria os consultores.
+
+**Primeiro setup (uma vez só, por ambiente):**
+```bash
+curl -X POST http://localhost:8000/auth/bootstrap-admin \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@empresa.com","name":"Admin","password":"...",
+       "bootstrap_secret":"<WINTHOR_BOOTSTRAP_SECRET do .env>"}'
+```
+Esse endpoint só funciona **uma vez** — depois que existe qualquer usuário no
+banco, ele sempre retorna 409, mesmo com o secret certo.
+
+**Depois disso**, login normal (`POST /auth/login`, form `username`+`password`,
+retorna JWT) e o admin cria os demais consultores:
+```bash
+curl -X POST http://localhost:8000/users \
+  -H "Authorization: Bearer <token-do-admin>" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"consultor@empresa.com","name":"Fulano","password":"...","is_admin":false}'
+```
+
+Token expira em 12h. Todo o resto da API exige `Authorization: Bearer <token>`.
+`resolved_by` na Exception Queue vem do usuário autenticado — não é mais
+texto livre enviado pelo cliente, é dado de auditoria de verdade.
 
 ## Dois formatos de saída, por decisão deliberada
 
@@ -100,6 +141,10 @@ recomendado até validar o mapping SQL.
 
 | Rota | Método | O que faz |
 |---|---|---|
+| `/auth/bootstrap-admin` | POST | Cria o primeiro admin (só funciona uma vez) |
+| `/auth/login` | POST (form) | Login, retorna JWT |
+| `/auth/me` | GET | Dados do usuário autenticado |
+| `/users` | POST / GET | Admin cria/lista consultores |
 | `/projects` | POST / GET | Cria/lista projetos |
 | `/projects/{id}/imports` | GET | Lotes de um projeto |
 | `/imports` | POST (multipart: `project_id` + `file`) | Roda pipeline, persiste lote |
@@ -108,23 +153,31 @@ recomendado até validar o mapping SQL.
 | `/exceptions?batch_id=&status=` | GET | Exception Queue |
 | `/exceptions/{id}/resolve` | POST | Aprova/rejeita exceção |
 | `/imports/{id}/readiness` | GET | Gate: há BLOCKER pendente? |
-| `/imports/{id}/script` | GET | Gera e baixa o `.sql` (409 se houver BLOCKER pendente) |
+| `/imports/{id}/script?format=texto\|sql` | GET | Gera e baixa o arquivo de carga |
 
-Banco default é SQLite local (`winthor_data_deploy.db`); troque via `WINTHOR_DB_URL`
-para apontar a um Postgres sem mudar código.
+Todas as rotas acima (exceto `/auth/login` e `/auth/bootstrap-admin`) exigem
+`Authorization: Bearer <token>`.
+
+Banco default é SQLite local (`winthor_data_deploy.db`) — só para dev solo.
+Em qualquer ambiente com mais de uma pessoa, usar Postgres via `WINTHOR_DB_URL`
+(`docker-compose.yml` já vem configurado assim).
 
 ## Deploy
 
-### Opção A — Docker (recomendado para VPS novo)
+### Opção A — Docker (recomendado para VPS compartilhado)
 
 ```bash
-cp .env.example .env    # ajuste WINTHOR_DB_URL se for usar Postgres
+cp .env.example .env
+# edite o .env: POSTGRES_PASSWORD, WINTHOR_JWT_SECRET, WINTHOR_BOOTSTRAP_SECRET
 docker compose up -d --build
+# depois de subir, rode o bootstrap-admin (ver seção Autenticação acima)
 ```
 
-Sobe em `http://<ip-do-vps>:8000`. Dados persistem nos volumes `winthor_data`/`winthor_output`.
-Coloque um nginx/Caddy na frente para TLS (ver `deploy/nginx.conf` como referência,
-mesmo usando Docker).
+Sobe em `http://<ip-do-vps>:8000`. Postgres roda em container separado
+(`db`), com volume próprio — dado sobrevive a rebuild da app. Coloque um
+nginx/Caddy na frente para TLS (ver `deploy/nginx.conf` como referência,
+mesmo usando Docker) — **HTTPS não é opcional** quando login/senha trafegam
+pela rede.
 
 ### Opção B — VPS sem Docker (systemd + nginx)
 
@@ -134,6 +187,7 @@ cd /opt/winthor-data-deploy
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+# edite o .env: WINTHOR_DB_URL (Postgres), WINTHOR_JWT_SECRET, WINTHOR_BOOTSTRAP_SECRET
 
 sudo cp deploy/winthor-data-deploy.service /etc/systemd/system/
 sudo systemctl daemon-reload

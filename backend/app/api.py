@@ -2,12 +2,16 @@
 API — expõe o pipeline, a Exception Queue e a geração de script Oracle como serviço.
 
 Fluxo real de uso (sem API do Winthor disponível):
-  abrir/criar projeto -> subir arquivo -> validar (pipeline automático) ->
-  tratar exceções -> gerar script .sql -> rodar manualmente no Oracle do cliente.
+  login -> abrir/criar projeto -> subir arquivo -> validar (pipeline automático) ->
+  tratar exceções -> gerar script -> rodar manualmente no Oracle/Winthor do cliente.
+
+Autenticação obrigatória a partir da decisão de rodar em VPS compartilhado
+por vários consultores (ver app/auth.py).
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 import uuid
@@ -18,11 +22,15 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
+from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
-from app.db import ExceptionRow, ImportBatch, Project, ProductRecord, get_session, init_db
+from app.auth import (authenticate_user, create_access_token, create_user,
+                       get_current_admin, get_current_user, hash_password)
+from app.db import (ExceptionRow, ImportBatch, Project, ProductRecord, User,
+                     get_db, init_db)
 from app.pipeline import run_pipeline_csv
 from app.repository import persist_pipeline_result
 from app.winthor.adherence import (load_modules_config, load_segments_config,
@@ -43,21 +51,40 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Winthor Data Deploy API",
-    description="Ingestão, saneamento, auditoria, Exception Queue e geração de script Oracle.",
-    version="0.2.0",
+    description="Ingestão, saneamento, auditoria, Exception Queue e geração de script Winthor.",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
 
-def get_db():
-    session = get_session()
-    try:
-        yield session
-    finally:
-        session.close()
-
-
 # ---------- Schemas ----------
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class UserOut(BaseModel):
+    id: str
+    email: str
+    name: str
+    is_admin: bool
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserCreateIn(BaseModel):
+    email: str
+    name: str
+    password: str
+    is_admin: bool = False
+
+
+class BootstrapAdminIn(BaseModel):
+    email: str
+    name: str
+    password: str
+    bootstrap_secret: str
+
 
 class ProjectOut(BaseModel):
     id: str
@@ -111,14 +138,60 @@ class ExceptionOut(BaseModel):
 
 class ResolveExceptionIn(BaseModel):
     decision: str  # "APPROVED" | "REJECTED"
-    resolved_by: str
     note: Optional[str] = None
+
+
+# ---------- Autenticação ----------
+
+@app.post("/auth/login", response_model=TokenOut)
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = authenticate_user(db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(401, "Email ou senha incorretos.",
+                             headers={"WWW-Authenticate": "Bearer"})
+    return TokenOut(access_token=create_access_token(user))
+
+
+@app.get("/auth/me", response_model=UserOut)
+def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+@app.post("/auth/bootstrap-admin", response_model=UserOut)
+def bootstrap_admin(payload: BootstrapAdminIn, db: Session = Depends(get_db)):
+    """Cria o primeiro admin. Só funciona uma vez (enquanto não houver nenhum
+    usuário) e exige o secret de ambiente WINTHOR_BOOTSTRAP_SECRET."""
+    expected_secret = os.environ.get("WINTHOR_BOOTSTRAP_SECRET")
+    if not expected_secret:
+        raise HTTPException(503, "WINTHOR_BOOTSTRAP_SECRET não configurado no servidor.")
+    if payload.bootstrap_secret != expected_secret:
+        raise HTTPException(403, "Secret de bootstrap incorreto.")
+    if db.query(User).count() > 0:
+        raise HTTPException(409, "Já existe usuário cadastrado. Bootstrap só funciona uma vez.")
+
+    return create_user(db, payload.email, payload.name, payload.password, is_admin=True)
+
+
+# ---------- Usuários (admin) ----------
+
+@app.post("/users", response_model=UserOut)
+def create_user_endpoint(payload: UserCreateIn, db: Session = Depends(get_db),
+                          _admin: User = Depends(get_current_admin)):
+    if db.query(User).filter(User.email == payload.email).first():
+        raise HTTPException(409, "Já existe usuário com esse email.")
+    return create_user(db, payload.email, payload.name, payload.password, payload.is_admin)
+
+
+@app.get("/users", response_model=list[UserOut])
+def list_users(db: Session = Depends(get_db), _admin: User = Depends(get_current_admin)):
+    return db.query(User).order_by(User.created_at.desc()).all()
 
 
 # ---------- Projetos ----------
 
 @app.post("/projects", response_model=ProjectOut)
-def create_project(payload: ProjectIn, db: Session = Depends(get_db)):
+def create_project(payload: ProjectIn, db: Session = Depends(get_db),
+                    _user: User = Depends(get_current_user)):
     project = Project(id=str(uuid.uuid4()), name=payload.name)
     db.add(project)
     db.commit()
@@ -127,12 +200,13 @@ def create_project(payload: ProjectIn, db: Session = Depends(get_db)):
 
 
 @app.get("/projects", response_model=list[ProjectOut])
-def list_projects(db: Session = Depends(get_db)):
+def list_projects(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     return db.query(Project).order_by(Project.created_at.desc()).all()
 
 
 @app.get("/projects/{project_id}/imports", response_model=list[BatchSummary])
-def list_project_imports(project_id: str, db: Session = Depends(get_db)):
+def list_project_imports(project_id: str, db: Session = Depends(get_db),
+                          _user: User = Depends(get_current_user)):
     return (
         db.query(ImportBatch)
         .filter(ImportBatch.project_id == project_id)
@@ -144,19 +218,20 @@ def list_project_imports(project_id: str, db: Session = Depends(get_db)):
 # ---------- Wizard de aderência ----------
 
 @app.get("/adherence/segments")
-def get_segments():
+def get_segments(_user: User = Depends(get_current_user)):
     """Segmentos/subsegmentos disponíveis, com preset de módulos por subsegmento."""
     return load_segments_config()
 
 
 @app.get("/adherence/modules")
-def get_modules():
+def get_modules(_user: User = Depends(get_current_user)):
     """Definição dos módulos de aderência do PCPRODUT (para montar o wizard)."""
     return load_modules_config()
 
 
 @app.post("/projects/{project_id}/adherence", response_model=AdherenceOut)
-def set_project_adherence(project_id: str, payload: AdherenceIn, db: Session = Depends(get_db)):
+def set_project_adherence(project_id: str, payload: AdherenceIn, db: Session = Depends(get_db),
+                           _user: User = Depends(get_current_user)):
     """Salva segmento/subsegmento escolhidos + aplica preset, com overrides opcionais."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -179,7 +254,8 @@ def set_project_adherence(project_id: str, payload: AdherenceIn, db: Session = D
 
 
 @app.get("/projects/{project_id}/adherence", response_model=AdherenceOut)
-def get_project_adherence(project_id: str, db: Session = Depends(get_db)):
+def get_project_adherence(project_id: str, db: Session = Depends(get_db),
+                           _user: User = Depends(get_current_user)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(404, "Projeto não encontrado.")
@@ -191,7 +267,8 @@ def get_project_adherence(project_id: str, db: Session = Depends(get_db)):
 
 @app.post("/imports", response_model=BatchSummary)
 async def create_import(project_id: str = Form(...), file: UploadFile = None,
-                         db: Session = Depends(get_db)):
+                         db: Session = Depends(get_db),
+                         _user: User = Depends(get_current_user)):
     """Sobe um CSV de produtos dentro de um projeto, roda o pipeline e persiste."""
     if not db.query(Project).filter(Project.id == project_id).first():
         raise HTTPException(404, "Projeto não encontrado.")
@@ -213,7 +290,8 @@ async def create_import(project_id: str = Form(...), file: UploadFile = None,
 
 
 @app.get("/imports/{batch_id}/report")
-def get_report(batch_id: str, db: Session = Depends(get_db)):
+def get_report(batch_id: str, db: Session = Depends(get_db),
+                _user: User = Depends(get_current_user)):
     batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
     if not batch:
         raise HTTPException(404, "Lote não encontrado.")
@@ -221,7 +299,8 @@ def get_report(batch_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/imports/{batch_id}/products")
-def list_products(batch_id: str, db: Session = Depends(get_db)):
+def list_products(batch_id: str, db: Session = Depends(get_db),
+                   _user: User = Depends(get_current_user)):
     products = db.query(ProductRecord).filter(ProductRecord.batch_id == batch_id).all()
     return [
         {
@@ -236,7 +315,8 @@ def list_products(batch_id: str, db: Session = Depends(get_db)):
 
 @app.get("/exceptions", response_model=list[ExceptionOut])
 def list_exceptions(batch_id: Optional[str] = None, status: Optional[str] = None,
-                     db: Session = Depends(get_db)):
+                     db: Session = Depends(get_db),
+                     _user: User = Depends(get_current_user)):
     query = db.query(ExceptionRow)
     if batch_id:
         query = query.filter(ExceptionRow.batch_id == batch_id)
@@ -247,7 +327,8 @@ def list_exceptions(batch_id: Optional[str] = None, status: Optional[str] = None
 
 @app.post("/exceptions/{exception_id}/resolve", response_model=ExceptionOut)
 def resolve_exception(exception_id: int, decision: ResolveExceptionIn,
-                       db: Session = Depends(get_db)):
+                       db: Session = Depends(get_db),
+                       current_user: User = Depends(get_current_user)):
     if decision.decision not in ("APPROVED", "REJECTED"):
         raise HTTPException(400, "decision deve ser APPROVED ou REJECTED.")
 
@@ -256,7 +337,9 @@ def resolve_exception(exception_id: int, decision: ResolveExceptionIn,
         raise HTTPException(404, "Exceção não encontrada.")
 
     row.resolution_status = decision.decision
-    row.resolved_by = decision.resolved_by
+    # resolved_by vem do usuário autenticado, não de texto livre enviado pelo
+    # cliente — é dado de auditoria, não deve poder ser forjado na requisição.
+    row.resolved_by = current_user.email
     row.resolution_note = decision.note
     row.resolved_at = datetime.now(timezone.utc)
     db.commit()
@@ -265,7 +348,8 @@ def resolve_exception(exception_id: int, decision: ResolveExceptionIn,
 
 
 @app.get("/imports/{batch_id}/readiness")
-def readiness_gate(batch_id: str, db: Session = Depends(get_db)):
+def readiness_gate(batch_id: str, db: Session = Depends(get_db),
+                    _user: User = Depends(get_current_user)):
     """Só libera geração de script se não houver BLOCKER pendente (Dry Run obrigatório)."""
     pending_blockers = (
         db.query(ExceptionRow)
@@ -280,10 +364,11 @@ def readiness_gate(batch_id: str, db: Session = Depends(get_db)):
     return {"batch_id": batch_id, "ready_for_dry_run": ready, "pending_blockers": pending_blockers}
 
 
-# ---------- Geração de script Oracle ----------
+# ---------- Geração de script ----------
 
 @app.get("/imports/{batch_id}/script")
-def generate_script(batch_id: str, format: str = "texto", db: Session = Depends(get_db)):
+def generate_script(batch_id: str, format: str = "texto", db: Session = Depends(get_db),
+                     _user: User = Depends(get_current_user)):
     """Gera o arquivo de carga para o Winthor.
 
     format=texto (default) -> arquivo delimitado oficial (DA.RPI.010), o que
