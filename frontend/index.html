@@ -96,9 +96,6 @@
   .project-item:hover { background: var(--bg-principal); }
   .project-item.active { background: var(--cor-marca-soft); color: var(--cor-marca-hover); font-weight: 600; }
 
-  .new-project-form { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
-  .new-project-form input { flex: 1; min-width: 0; }
-  .new-project-form select { flex-basis: 100%; }
 
   .sidebar-footer {
     margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-color);
@@ -301,21 +298,16 @@
         <ul class="project-list">
           <template x-for="p in projects" :key="p.id">
             <li class="project-item" x-bind:class="{active: currentProject && currentProject.id === p.id}"
-                x-on:click="selectProject(p)">
+                x-on:click="isNewProjectFlow = false; selectProject(p)">
               <i data-lucide="building-2" style="width:13px;height:13px;"></i>
               <span x-text="p.name"></span>
             </li>
           </template>
         </ul>
-        <form class="new-project-form" x-on:submit.prevent="createProject()">
-          <input type="text" x-model="newProjectName" placeholder="Nome do projeto (cliente)" required>
-          <select x-model="newProjectErp" x-init="loadErps()">
-            <template x-for="erp in erps" :key="erp.id">
-              <option :value="erp.id" x-text="erp.name"></option>
-            </template>
-          </select>
-          <button type="submit" class="btn-ghost"><i data-lucide="plus" style="width:14px;height:14px;"></i></button>
-        </form>
+        <button class="btn-ghost" style="width:100%; margin-top:10px; justify-content:center;"
+                x-on:click="startNewProjectWizard()">
+          <i data-lucide="plus" style="width:14px;height:14px;"></i> Novo projeto
+        </button>
       </div>
     </template>
 
@@ -352,17 +344,42 @@
 
   <main class="content">
 
-    <div class="empty-state" x-show="view === 'projects' && !currentProject">
+    <div class="empty-state" x-show="view === 'projects' && !currentProject && !creatingProject">
       <h2>Nenhum projeto selecionado</h2>
       <p>Crie um projeto ao lado (ex: nome do cliente) para comecar: definir o perfil de
       aderencia, subir arquivos, validar automaticamente e tratar excecoes antes de gerar
       o arquivo de carga.</p>
     </div>
 
+    <template x-if="view === 'projects' && creatingProject">
+      <section class="panel">
+        <h2><i data-lucide="folder-plus" style="width:16px;height:16px;"></i> Novo projeto — passo 1 de 2</h2>
+        <div class="form-grid">
+          <div class="field-label">Nome do projeto (cliente)</div>
+          <input type="text" x-model="newProjectName" placeholder="Ex: Distribuidora Norte" required>
+
+          <div class="field-label">ERP de destino</div>
+          <select x-model="newProjectErp">
+            <template x-for="erp in erps" :key="erp.id">
+              <option :value="erp.id" x-text="erp.name"></option>
+            </template>
+          </select>
+
+          <div style="display:flex; gap:8px; margin-top:4px;">
+            <button class="btn-primary" x-on:click="createProject()" :disabled="!newProjectName.trim()">
+              Continuar <i data-lucide="arrow-right" style="width:14px;height:14px;"></i>
+            </button>
+            <button class="btn-ghost" x-on:click="creatingProject = false;">Cancelar</button>
+          </div>
+        </div>
+      </section>
+    </template>
+
     <template x-if="view === 'projects' && currentProject && !adherence.segment">
       <section class="panel">
         <h2><i data-lucide="clipboard-list" style="width:16px;height:16px;"></i>
-          Perfil de aderencia - <span x-text="currentProject.name"></span></h2>
+          <span x-text="isNewProjectFlow ? 'Novo projeto — passo 2 de 2: perfil de aderencia' : 'Perfil de aderencia pendente'"></span>
+          (<span x-text="currentProject.name"></span>)</h2>
         <p class="note-text" style="max-width:60ch; margin-bottom:14px;">
           O layout do Winthor e fixo - isto nao remove campo do arquivo, decide o que e
           exigido como obrigatorio e o que recebe valor padrao automatico.
@@ -625,6 +642,8 @@ function app() {
     newProjectName: '',
     newProjectErp: 'winthor',
     erps: [],
+    creatingProject: false,
+    isNewProjectFlow: false,
     currentProject: null,
     adherence: {},
 
@@ -761,6 +780,15 @@ function app() {
       });
     },
 
+    startNewProjectWizard: function() {
+      this.creatingProject = true;
+      this.isNewProjectFlow = true;
+      this.currentProject = null;
+      this.currentBatch = null;
+      this.newProjectName = '';
+      this.loadErps();
+    },
+
     createProject: function() {
       var self = this;
       if (!this.newProjectName.trim()) return;
@@ -770,6 +798,7 @@ function app() {
         if (!resp) return;
         return resp.json().then(function(project) {
           self.newProjectName = '';
+          self.creatingProject = false;
           return self.loadProjects().then(function() { self.selectProject(project); });
         });
       });
@@ -777,6 +806,7 @@ function app() {
 
     selectProject: function(project) {
       var self = this;
+      this.creatingProject = false;
       this.currentProject = project;
       this.currentBatch = null;
       this.adherence = {};
