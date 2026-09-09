@@ -13,7 +13,7 @@ from sqlalchemy import (JSON, Boolean, Column, DateTime, Float, ForeignKey,
                          Integer, String, create_engine)
 from sqlalchemy.orm import DeclarativeBase, Session, relationship, sessionmaker
 
-DATABASE_URL = os.environ.get("TACELERAR_DB_URL", "sqlite:///./tacelerar_winthor.db")
+DATABASE_URL = os.environ.get("TACELERAR_DB_URL", "sqlite:///./tacelerar.db")
 
 engine = create_engine(
     DATABASE_URL,

@@ -1,4 +1,4 @@
-name: tacelerar-winthor-dev
+name: tacelerar-dev
 
 # Ambiente de DEV. Mesma estrutura do prod, recurso bem mais baixo
 # de proposito -- este ambiente nao processa volume grande, e so validacao.
@@ -8,12 +8,12 @@ name: tacelerar-winthor-dev
 services:
   db:
     image: postgres:16-alpine
-    container_name: tacelerar-winthor-dev-db
+    container_name: tacelerar-dev-db
     restart: unless-stopped
     env_file: .env
     volumes:
-      - /opt/tacelerar-winthor/dev/data/postgres:/var/lib/postgresql/data
-    networks: [net-tacelerar-winthor-dev]
+      - /opt/tacelerar/dev/data/postgres:/var/lib/postgresql/data
+    networks: [net-tacelerar-dev]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -24,12 +24,12 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: tacelerar-winthor-dev-redis
+    container_name: tacelerar-dev-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 100mb --maxmemory-policy allkeys-lru
     volumes:
-      - /opt/tacelerar-winthor/dev/data/redis:/data
-    networks: [net-tacelerar-winthor-dev]
+      - /opt/tacelerar/dev/data/redis:/data
+    networks: [net-tacelerar-dev]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -41,15 +41,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: tacelerar-winthor-backend:dev
-    container_name: tacelerar-winthor-dev-backend
+    image: tacelerar-backend:dev
+    container_name: tacelerar-dev-backend
     restart: unless-stopped
     env_file: .env
     ports: ["127.0.0.1:8021:8000"]
     volumes:
-      - /opt/tacelerar-winthor/dev/data/uploads:/app/output
-      - /opt/tacelerar-winthor/dev/logs:/app/logs
-    networks: [net-tacelerar-winthor-dev]
+      - /opt/tacelerar/dev/data/uploads:/app/output
+      - /opt/tacelerar/dev/logs:/app/logs
+    networks: [net-tacelerar-dev]
     depends_on:
       db:
         condition: service_healthy
@@ -68,11 +68,11 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: tacelerar-winthor-frontend:dev
-    container_name: tacelerar-winthor-dev-frontend
+    image: tacelerar-frontend:dev
+    container_name: tacelerar-dev-frontend
     restart: unless-stopped
     ports: ["127.0.0.1:3021:80"]
-    networks: [net-tacelerar-winthor-dev]
+    networks: [net-tacelerar-dev]
     mem_limit: 32m
     cpus: 0.05
 
@@ -80,15 +80,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: tacelerar-winthor-backend:dev
-    container_name: tacelerar-winthor-dev-celery-worker
+    image: tacelerar-backend:dev
+    container_name: tacelerar-dev-celery-worker
     restart: unless-stopped
     env_file: .env
     command: celery -A app.tasks worker --loglevel=info --concurrency=1 --app-dir /app/backend
     volumes:
-      - /opt/tacelerar-winthor/dev/data/uploads:/app/output
-      - /opt/tacelerar-winthor/dev/logs:/app/logs
-    networks: [net-tacelerar-winthor-dev]
+      - /opt/tacelerar/dev/data/uploads:/app/output
+      - /opt/tacelerar/dev/logs:/app/logs
+    networks: [net-tacelerar-dev]
     depends_on:
       db:
         condition: service_healthy
@@ -98,5 +98,5 @@ services:
     cpus: 0.25
 
 networks:
-  net-tacelerar-winthor-dev:
+  net-tacelerar-dev:
     driver: bridge

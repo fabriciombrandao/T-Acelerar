@@ -24,7 +24,7 @@ cd frontend && python3 -m http.server 8080
 
 Abra `http://127.0.0.1:8080`. CORS já está liberado no backend pra esse
 cenário (ver comentário em `api.py`). Login/dados ficam em SQLite local
-(`tacelerar_winthor.db`) automaticamente — não precisa configurar nada
+(`tacelerar.db`) automaticamente — não precisa configurar nada
 pra esse modo.
 
 ## O que está implementado (real, testado — 21 testes)
@@ -201,7 +201,7 @@ negócio.
 Todas as rotas `/api/*` acima (exceto `/api/auth/login` e
 `/api/auth/bootstrap-admin`) exigem `Authorization: Bearer <token>`.
 
-Banco default é SQLite local (`tacelerar_winthor.db`) — só para dev solo,
+Banco default é SQLite local (`tacelerar.db`) — só para dev solo,
 sem Docker. Em qualquer ambiente com mais de uma pessoa, usar Postgres via
 `TACELERAR_DB_URL` (`docker-compose.{prod,dev,teste}.yml` já vêm configurados assim).
 
@@ -215,7 +215,7 @@ explicitamente. Seguimos exatamente essa convenção — **não** um único
 compose com profiles.
 
 ```
-/opt/tacelerar-winthor/
+/opt/tacelerar/
 ├── prod/    (checkout git próprio + .env próprio)
 ├── dev/     (checkout git próprio + .env próprio)
 └── teste/   (checkout git próprio + .env próprio)
@@ -230,10 +230,10 @@ ambiente errado.
 
 | | Deles (referência) | Nosso |
 |---|---|---|
-| Diretório | `/opt/tnorteando/{env}/` | `/opt/tacelerar-winthor/{env}/` |
-| Compose project | `tnorteando-{env}` | `tacelerar-winthor-{env}` |
-| Container | `tnorteando-{env}-backend` | `tacelerar-winthor-{env}-backend` |
-| Rede | `net-tnorteando-{env}` | `net-tacelerar-winthor-{env}` |
+| Diretório | `/opt/tnorteando/{env}/` | `/opt/tacelerar/{env}/` |
+| Compose project | `tnorteando-{env}` | `tacelerar-{env}` |
+| Container | `tnorteando-{env}-backend` | `tacelerar-{env}-backend` |
+| Rede | `net-tnorteando-{env}` | `net-tacelerar-{env}` |
 | Porta backend (127.0.0.1 só) | 8010/8011/8012 | **8020/8021/8022** (prod/dev/teste) |
 | Porta frontend (127.0.0.1 só) | 3010/3011/3012 | **3020/3021/3022** (prod/dev/teste) |
 | Domínio | `tnorteando.com.br` / `desenv....` / `teste....` | `servicos.tnorteando.com.br` (prod) / dev e teste: a decidir quando forem ativados |
@@ -254,16 +254,16 @@ rodado pra eles. Quando precisar, é o mesmo passo a passo abaixo trocando
 
 **1. Checkout:**
 ```bash
-sudo mkdir -p /opt/tacelerar-winthor
-cd /opt/tacelerar-winthor
+sudo mkdir -p /opt/tacelerar
+cd /opt/tacelerar
 sudo git clone https://github.com/fabriciombrandao/T-Acelerar.git prod
 cd prod
 ```
 
 **2. Criar diretórios de dado (bind mount, não volume nomeado — igual ao padrão deles, mais fácil de inspecionar/backupar):**
 ```bash
-sudo mkdir -p /opt/tacelerar-winthor/prod/data/{postgres,redis,uploads}
-sudo mkdir -p /opt/tacelerar-winthor/prod/logs
+sudo mkdir -p /opt/tacelerar/prod/data/{postgres,redis,uploads}
+sudo mkdir -p /opt/tacelerar/prod/logs
 ```
 
 **3. Configurar `.env`:**
@@ -296,8 +296,8 @@ curl -X POST http://127.0.0.1:8020/api/auth/bootstrap-admin \
 
 **7. nginx (host, fora do Docker — igual ao padrão deles):**
 ```bash
-sudo cp deploy/nginx-servicos-prod.conf /etc/nginx/sites-available/tacelerar-winthor-prod
-sudo ln -s /etc/nginx/sites-available/tacelerar-winthor-prod /etc/nginx/sites-enabled/
+sudo cp deploy/nginx-servicos-prod.conf /etc/nginx/sites-available/tacelerar-prod
+sudo ln -s /etc/nginx/sites-available/tacelerar-prod /etc/nginx/sites-enabled/
 sudo certbot --nginx -d servicos.tnorteando.com.br
 sudo nginx -t && sudo systemctl reload nginx
 ```
@@ -350,14 +350,21 @@ python3 cli.py sample_data/produtos_exemplo.csv --out output/
 3. **Validação de EAN usa checksum real (GTIN)**, não regex de tamanho. Cadastros legados
    quase sempre têm EAN "com a cara certa" mas dígito verificador errado — é o tipo de erro
    que review manual não pega e o algoritmo pega em O(1).
-4. **Dedup é O(n²) de propósito no MVP.** O documento já prevê blocking por família/marca
-   para escalar — implementar isso antes de ter um piloto real com volume é otimização
-   prematura. Está documentado no código onde trocar.
+4. **Dedup usa blocking + sorted neighborhood, não O(n²) puro.** Testado até
+   200 mil produtos no pior caso (tudo num balde só): 4,2s. Detalhe e trade-offs
+   documentados em `app/dedup/dedup.py`.
 5. **IA está deliberadamente ausente**, não esquecida. O princípio do documento (seção 34)
    é "IA só onde aumenta produtividade real". Os pontos de extensão (sugestão de NCM,
    matching de duplicatas ambíguas, normalização de descrição fora do dicionário de regras)
    ficam isolados em módulos próprios — plugar um classificador depois não exige reescrever
    o pipeline.
+6. **Uma aplicação só, não uma por ERP.** Decisão explícita do time: quando um segundo
+   conector (ex: Protheus) existir, ele entra como `app/<erp>/` no mesmo repositório e no
+   mesmo deploy — não vira um novo conjunto de containers/domínio/banco. A distinção de
+   qual ERP um projeto usa vira um campo no `Project` (ainda não existe, porque só há um
+   conector até agora — adicionar esse campo antes de ter um segundo caso real seria
+   desenhar às cegas). `app/winthor/` já está isolado do núcleo genérico (auth, projetos,
+   Exception Queue, pipeline) exatamente para não exigir reescrita quando esse dia chegar.
 
 ## Gaps do documento original que este código expõe
 

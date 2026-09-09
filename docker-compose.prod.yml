@@ -1,4 +1,4 @@
-name: tacelerar-winthor-prod
+name: tacelerar-prod
 
 # Ambiente de PRODUÇÃO. Estrutura espelha o padrão TNORTEANDO já usado
 # neste VPS: container_name explícito, healthcheck em db/redis/backend,
@@ -12,12 +12,12 @@ name: tacelerar-winthor-prod
 services:
   db:
     image: postgres:16-alpine
-    container_name: tacelerar-winthor-prod-db
+    container_name: tacelerar-prod-db
     restart: unless-stopped
     env_file: .env
     volumes:
-      - /opt/tacelerar-winthor/prod/data/postgres:/var/lib/postgresql/data
-    networks: [net-tacelerar-winthor-prod]
+      - /opt/tacelerar/prod/data/postgres:/var/lib/postgresql/data
+    networks: [net-tacelerar-prod]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -28,12 +28,12 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: tacelerar-winthor-prod-redis
+    container_name: tacelerar-prod-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 200mb --maxmemory-policy allkeys-lru
     volumes:
-      - /opt/tacelerar-winthor/prod/data/redis:/data
-    networks: [net-tacelerar-winthor-prod]
+      - /opt/tacelerar/prod/data/redis:/data
+    networks: [net-tacelerar-prod]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -45,15 +45,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: tacelerar-winthor-backend:prod
-    container_name: tacelerar-winthor-prod-backend
+    image: tacelerar-backend:prod
+    container_name: tacelerar-prod-backend
     restart: unless-stopped
     env_file: .env
     ports: ["127.0.0.1:8020:8000"]
     volumes:
-      - /opt/tacelerar-winthor/prod/data/uploads:/app/output
-      - /opt/tacelerar-winthor/prod/logs:/app/logs
-    networks: [net-tacelerar-winthor-prod]
+      - /opt/tacelerar/prod/data/uploads:/app/output
+      - /opt/tacelerar/prod/logs:/app/logs
+    networks: [net-tacelerar-prod]
     depends_on:
       db:
         condition: service_healthy
@@ -72,11 +72,11 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: tacelerar-winthor-frontend:prod
-    container_name: tacelerar-winthor-prod-frontend
+    image: tacelerar-frontend:prod
+    container_name: tacelerar-prod-frontend
     restart: unless-stopped
     ports: ["127.0.0.1:3020:80"]
-    networks: [net-tacelerar-winthor-prod]
+    networks: [net-tacelerar-prod]
     mem_limit: 64m
     cpus: 0.1
 
@@ -84,15 +84,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: tacelerar-winthor-backend:prod
-    container_name: tacelerar-winthor-prod-celery-worker
+    image: tacelerar-backend:prod
+    container_name: tacelerar-prod-celery-worker
     restart: unless-stopped
     env_file: .env
     command: celery -A app.tasks worker --loglevel=info --concurrency=2 --app-dir /app/backend
     volumes:
-      - /opt/tacelerar-winthor/prod/data/uploads:/app/output
-      - /opt/tacelerar-winthor/prod/logs:/app/logs
-    networks: [net-tacelerar-winthor-prod]
+      - /opt/tacelerar/prod/data/uploads:/app/output
+      - /opt/tacelerar/prod/logs:/app/logs
+    networks: [net-tacelerar-prod]
     depends_on:
       db:
         condition: service_healthy
@@ -104,5 +104,5 @@ services:
     cpus: 1.0
 
 networks:
-  net-tacelerar-winthor-prod:
+  net-tacelerar-prod:
     driver: bridge
