@@ -5,6 +5,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.sped.parser import parse_sped_records
 from app.sped.participante_extractor import extract_participantes_from_sped
+from app.sped.produto_extractor import extract_produtos_from_sped
 from app.validation.br_documents import validate_cnpj, validate_cpf
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sped_exemplo.txt"
@@ -130,3 +131,36 @@ def test_extract_ignores_c100_referencing_unknown_cod_part():
 
     participantes = extract_participantes_from_sped([path])
     assert participantes == []
+
+
+# ---------- Extração de produto (registro 0200) ----------
+
+def test_extract_produto_from_sped_maps_fields_correctly():
+    produtos = extract_produtos_from_sped([FIXTURE])
+    assert len(produtos) == 1
+    p = produtos[0]
+    assert p.sku == "1"
+    assert p.description == "PRODUTO TESTE UM"
+    assert p.barcode == "7891234567895"
+    assert p.unit == "UN"
+    assert p.ncm == "10063021"
+
+
+def test_extract_produto_from_sped_consolidates_by_cod_item_across_files():
+    """Mesmo COD_ITEM em 2 arquivos (ex: livro ICMS + livro PIS/COFINS da
+    mesma empresa) -> um produto só, não duplica."""
+    produtos = extract_produtos_from_sped([FIXTURE, FIXTURE])
+    assert len(produtos) == 1
+    assert len(produtos[0].provenance) == 2  # registrou as duas fontes
+
+
+def test_extract_produto_from_sped_skips_blank_cod_item():
+    import tempfile
+    conteudo = "|0200|  |DESCRICAO SEM CODIGO|||UN|00|10063021|||||\n"
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False,
+                                      encoding="iso-8859-1") as f:
+        f.write(conteudo)
+        path = f.name
+
+    produtos = extract_produtos_from_sped([path])
+    assert produtos == []
