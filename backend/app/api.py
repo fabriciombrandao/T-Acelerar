@@ -54,8 +54,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="T-Acelerar — Módulo Winthor",
-    description="Acelerador de projetos de implantação TOTVS — este módulo cobre ingestão, saneamento, auditoria, Exception Queue e geração de script para migração de dados ao Winthor.",
+    title="T-Acelerar",
+    description="Acelerador de projetos de implantação TOTVS — ingestão, saneamento, auditoria, Exception Queue e geração de script de carga, por ERP escolhido em cada projeto.",
     version="0.4.0",
     lifespan=lifespan,
 )
