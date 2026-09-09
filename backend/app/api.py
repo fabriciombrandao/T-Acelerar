@@ -30,9 +30,10 @@ from sqlalchemy.orm import Session
 from app.auth import (Role, authenticate_user, can_see_owner, create_access_token,
                        create_user, get_current_coordenador_ou_acima,
                        get_current_diretor, get_current_user, hash_password,
-                       visible_owner_ids)
+                       verify_password, visible_owner_ids)
 from app.db import (ExceptionRow, ImportBatch, Project, ProductRecord, User,
                      get_db, init_db)
+from app.erps import SUPPORTED_ERPS, is_supported_erp
 from app.repository import create_pending_batch
 from app.tasks import process_import_task
 from app.winthor.adherence import (load_modules_config, load_segments_config,
@@ -146,6 +147,7 @@ class ProjectOut(BaseModel):
     id: str
     name: str
     owner_id: Optional[str] = None
+    erp_type: str
     segment: Optional[str] = None
     subsegment: Optional[str] = None
     adherence_answers: dict = {}
@@ -154,6 +156,7 @@ class ProjectOut(BaseModel):
 
 class ProjectIn(BaseModel):
     name: str
+    erp_type: str  # obrigatório — ver app/erps.py pros valores suportados
     owner_email: Optional[str] = None  # só admin pode atribuir a outro consultor
 
 
@@ -217,6 +220,26 @@ def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
 
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/auth/change-password")
+def change_password(payload: ChangePasswordIn, db: Session = Depends(get_db),
+                     current_user: User = Depends(get_current_user)):
+    """Autoatendimento — qualquer usuário troca a própria senha, inclusive
+    a senha provisória que o admin/coordenador definiu ao criar a conta."""
+    if not verify_password(payload.current_password, current_user.password_hash):
+        raise HTTPException(400, "Senha atual incorreta.")
+    if len(payload.new_password) < 8:
+        raise HTTPException(400, "Nova senha precisa ter pelo menos 8 caracteres.")
+
+    current_user.password_hash = hash_password(payload.new_password)
+    db.commit()
+    return {"status": "ok"}
+
+
 @router.post("/auth/bootstrap-admin", response_model=UserOut)
 def bootstrap_admin(payload: BootstrapAdminIn, db: Session = Depends(get_db)):
     """Cria o primeiro DIRETOR. Só funciona uma vez (enquanto não houver
@@ -273,9 +296,20 @@ def list_users(db: Session = Depends(get_db),
 
 # ---------- Projetos ----------
 
+@router.get("/erps")
+def list_erps(_user: User = Depends(get_current_user)):
+    """ERPs suportados, pro seletor da tela de novo projeto."""
+    return [{"id": k, "name": v} for k, v in SUPPORTED_ERPS.items()]
+
+
 @router.post("/projects", response_model=ProjectOut)
 def create_project(payload: ProjectIn, db: Session = Depends(get_db),
                     current_user: User = Depends(get_current_user)):
+    if not is_supported_erp(payload.erp_type):
+        raise HTTPException(
+            400, f"ERP '{payload.erp_type}' não suportado. Opções: {list(SUPPORTED_ERPS)}.",
+        )
+
     owner_id = current_user.id
 
     if payload.owner_email:
@@ -290,7 +324,8 @@ def create_project(payload: ProjectIn, db: Session = Depends(get_db),
             )
         owner_id = target.id
 
-    project = Project(id=str(uuid.uuid4()), name=payload.name, owner_id=owner_id)
+    project = Project(id=str(uuid.uuid4()), name=payload.name,
+                       erp_type=payload.erp_type, owner_id=owner_id)
     db.add(project)
     db.commit()
     db.refresh(project)

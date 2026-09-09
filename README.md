@@ -186,8 +186,10 @@ negócio.
 | `/api/auth/bootstrap-admin` | POST | Cria o primeiro diretor (só funciona uma vez) |
 | `/api/auth/login` | POST (form) | Login, retorna JWT |
 | `/api/auth/me` | GET | Dados do usuário autenticado |
+| `/api/auth/change-password` | POST | Troca a própria senha (autoatendimento) |
 | `/api/users` | POST / GET | Diretor/coordenador cria/lista pessoas da equipe |
-| `/api/projects` | POST / GET | Cria/lista projetos |
+| `/api/erps` | GET | ERPs suportados (pro seletor de novo projeto) |
+| `/api/projects` | POST / GET | Cria/lista projetos — `erp_type` obrigatório na criação |
 | `/api/projects/{id}/imports` | GET | Lotes de um projeto |
 | `/api/imports` | POST (multipart: `project_id` + `file`) | Sobe arquivo, dispara processamento |
 | `/api/imports/{id}` | GET | Status do lote (polling: PENDING/PROCESSING/DONE/FAILED) |

@@ -96,8 +96,9 @@
   .project-item:hover { background: var(--bg-principal); }
   .project-item.active { background: var(--cor-marca-soft); color: var(--cor-marca-hover); font-weight: 600; }
 
-  .new-project-form { display: flex; gap: 6px; margin-top: 10px; }
-  .new-project-form input { flex: 1; }
+  .new-project-form { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .new-project-form input { flex: 1; min-width: 0; }
+  .new-project-form select { flex-basis: 100%; }
 
   .sidebar-footer {
     margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-color);
@@ -269,7 +270,7 @@
 <div class="login-screen" x-show="!token" x-cloak>
   <form class="login-card" x-on:submit.prevent="login()">
     <h1>T-Acelerar</h1>
-    <div class="sidebar-subtitle">Modulo Winthor</div>
+    <div class="sidebar-subtitle">Acelerador de projetos de implantacao</div>
     <input type="email" x-model="loginForm.email" placeholder="Email" required autocomplete="username">
     <input type="password" x-model="loginForm.password" placeholder="Senha" required autocomplete="current-password">
     <button type="submit" class="btn-primary" style="justify-content:center;">Entrar</button>
@@ -308,6 +309,11 @@
         </ul>
         <form class="new-project-form" x-on:submit.prevent="createProject()">
           <input type="text" x-model="newProjectName" placeholder="Nome do projeto (cliente)" required>
+          <select x-model="newProjectErp" x-init="loadErps()">
+            <template x-for="erp in erps" :key="erp.id">
+              <option :value="erp.id" x-text="erp.name"></option>
+            </template>
+          </select>
           <button type="submit" class="btn-ghost"><i data-lucide="plus" style="width:14px;height:14px;"></i></button>
         </form>
       </div>
@@ -317,11 +323,31 @@
       <div class="user-chip">
         <span x-text="me ? me.email : ''"></span>
       </div>
-      <button class="icon-btn" x-on:click="logout()" title="Sair">
-        <i data-lucide="log-out" style="width:16px;height:16px;"></i>
-      </button>
+      <div style="display:flex; gap:2px;">
+        <button class="icon-btn" x-on:click="showChangePassword = true" title="Trocar senha">
+          <i data-lucide="key-round" style="width:16px;height:16px;"></i>
+        </button>
+        <button class="icon-btn" x-on:click="logout()" title="Sair">
+          <i data-lucide="log-out" style="width:16px;height:16px;"></i>
+        </button>
+      </div>
     </div>
   </aside>
+
+  <!-- ---------- Trocar senha ---------- -->
+  <div class="login-screen" style="position:fixed; inset:0; background:rgba(15,23,42,0.4); z-index:50;"
+       x-show="showChangePassword" x-cloak>
+    <form class="login-card" x-on:submit.prevent="submitChangePassword()">
+      <h1 style="font-size:15px;">Trocar senha</h1>
+      <input type="password" x-model="changePasswordForm.current_password" placeholder="Senha atual" required autocomplete="current-password">
+      <input type="password" x-model="changePasswordForm.new_password" placeholder="Nova senha (mínimo 8 caracteres)" required autocomplete="new-password">
+      <div style="display:flex; gap:8px;">
+        <button type="submit" class="btn-primary" style="flex:1; justify-content:center;">Salvar</button>
+        <button type="button" class="btn-ghost" x-on:click="showChangePassword = false; changePasswordError = '';">Cancelar</button>
+      </div>
+      <div class="login-error" x-text="changePasswordError"></div>
+    </form>
+  </div>
 
   <main class="content">
 
@@ -596,6 +622,8 @@ function app() {
 
     projects: [],
     newProjectName: '',
+    newProjectErp: 'winthor',
+    erps: [],
     currentProject: null,
     adherence: {},
 
@@ -623,6 +651,10 @@ function app() {
 
     toastMessage: '',
     toastTimer: null,
+
+    showChangePassword: false,
+    changePasswordForm: { current_password: '', new_password: '' },
+    changePasswordError: '',
 
     init: function() {
       var self = this;
@@ -672,6 +704,22 @@ function app() {
       localStorage.removeItem('winthor_token');
     },
 
+    submitChangePassword: function() {
+      var self = this;
+      this.changePasswordError = '';
+      if (this.changePasswordForm.new_password.length < 8) {
+        this.changePasswordError = 'Nova senha precisa ter pelo menos 8 caracteres.';
+        return;
+      }
+      return API.postJson('/auth/change-password', this.changePasswordForm, this.token).then(function() {
+        self.showChangePassword = false;
+        self.changePasswordForm = { current_password: '', new_password: '' };
+        self.toast('Senha alterada.');
+      }).catch(function(e) {
+        self.changePasswordError = e.message;
+      });
+    },
+
     call: function(promiseFn) {
       var self = this;
       return promiseFn().catch(function(e) {
@@ -690,11 +738,22 @@ function app() {
       });
     },
 
+    loadErps: function() {
+      var self = this;
+      if (this.erps.length) return;
+      return this.call(function() { return API.get('/erps', self.token); }).then(function(resp) {
+        if (resp) return resp.json().then(function(data) {
+          self.erps = data;
+          if (data.length) self.newProjectErp = data[0].id;
+        });
+      });
+    },
+
     createProject: function() {
       var self = this;
       if (!this.newProjectName.trim()) return;
       return this.call(function() {
-        return API.postJson('/projects', { name: self.newProjectName }, self.token);
+        return API.postJson('/projects', { name: self.newProjectName, erp_type: self.newProjectErp }, self.token);
       }).then(function(resp) {
         if (!resp) return;
         return resp.json().then(function(project) {

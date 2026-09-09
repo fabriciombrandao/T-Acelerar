@@ -36,7 +36,7 @@ def client(tmp_path, monkeypatch):
 
 
 def _create_project(client, name="Cliente Teste"):
-    resp = client.post("/api/projects", json={"name": name})
+    resp = client.post("/api/projects", json={"erp_type": "winthor", "name": name})
     assert resp.status_code == 200
     return resp.json()["id"]
 
@@ -51,9 +51,22 @@ def _upload_sample(client, project_id):
 
 
 def test_create_project(client):
-    resp = client.post("/api/projects", json={"name": "Distribuidora Norte"})
+    resp = client.post("/api/projects", json={"erp_type": "winthor", "name": "Distribuidora Norte"})
     assert resp.status_code == 200
     assert resp.json()["name"] == "Distribuidora Norte"
+    assert resp.json()["erp_type"] == "winthor"
+
+
+def test_create_project_rejects_unsupported_erp(client):
+    resp = client.post("/api/projects", json={"erp_type": "protheus", "name": "X"})
+    assert resp.status_code == 400
+
+
+def test_list_erps_returns_winthor(client):
+    resp = client.get("/api/erps")
+    assert resp.status_code == 200
+    ids = [e["id"] for e in resp.json()]
+    assert ids == ["winthor"]
 
 
 def test_import_requires_valid_project(client):

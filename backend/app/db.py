@@ -45,6 +45,7 @@ class Project(Base):
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
     owner_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
+    erp_type = Column(String, nullable=False, default="winthor")  # escolhido na criação do projeto
     segment = Column(String, nullable=True)
     subsegment = Column(String, nullable=True)
     adherence_answers = Column(JSON, default=dict)  # {module_id: bool}

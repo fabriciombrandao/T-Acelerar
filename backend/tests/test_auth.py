@@ -107,7 +107,7 @@ def test_resolve_exception_records_authenticated_user_not_client_input(raw_clien
     _bootstrap(raw_client, email="real.consultor@teste.com")
     headers = _login(raw_client, "real.consultor@teste.com")
 
-    project_id = raw_client.post("/api/projects", headers=headers, json={"name": "P"}).json()["id"]
+    project_id = raw_client.post("/api/projects", headers=headers, json={"erp_type": "winthor", "name": "P"}).json()["id"]
     batch = _upload_sample(raw_client, headers, project_id).json()
 
     exceptions = raw_client.get("/api/exceptions", headers=headers,
@@ -194,7 +194,7 @@ def test_analista_can_use_normal_endpoints(raw_client):
     _create_user(raw_client, coord, "analista1@teste.com", "analista")
     analista = _login(raw_client, "analista1@teste.com")
 
-    resp = raw_client.post("/api/projects", headers=analista, json={"name": "Projeto"})
+    resp = raw_client.post("/api/projects", headers=analista, json={"erp_type": "winthor", "name": "Projeto"})
     assert resp.status_code == 200
 
 
@@ -220,7 +220,7 @@ def _setup_two_teams(raw_client):
 def test_diretor_sees_all_projects(raw_client):
     headers = _setup_two_teams(raw_client)
     p = raw_client.post("/api/projects", headers=headers["analista_a1"],
-                         json={"name": "Cliente A"}).json()
+                         json={"erp_type": "winthor", "name": "Cliente A"}).json()
 
     lista = raw_client.get("/api/projects", headers=headers["diretor"]).json()
     assert p["id"] in [x["id"] for x in lista]
@@ -229,7 +229,7 @@ def test_diretor_sees_all_projects(raw_client):
 def test_coordenador_sees_own_teams_project(raw_client):
     headers = _setup_two_teams(raw_client)
     p = raw_client.post("/api/projects", headers=headers["analista_a1"],
-                         json={"name": "Cliente A"}).json()
+                         json={"erp_type": "winthor", "name": "Cliente A"}).json()
 
     lista = raw_client.get("/api/projects", headers=headers["coord_a"]).json()
     assert p["id"] in [x["id"] for x in lista]
@@ -238,7 +238,7 @@ def test_coordenador_sees_own_teams_project(raw_client):
 def test_coordenador_cannot_see_other_teams_project(raw_client):
     headers = _setup_two_teams(raw_client)
     p = raw_client.post("/api/projects", headers=headers["analista_a1"],
-                         json={"name": "Cliente A"}).json()
+                         json={"erp_type": "winthor", "name": "Cliente A"}).json()
 
     lista = raw_client.get("/api/projects", headers=headers["coord_b"]).json()
     assert p["id"] not in [x["id"] for x in lista]
@@ -254,7 +254,7 @@ def test_analista_cannot_see_peer_analista_project_same_team(raw_client):
     analista_a2 = _login(raw_client, "analista_a2@teste.com")
 
     p = raw_client.post("/api/projects", headers=headers["analista_a1"],
-                         json={"name": "Cliente A"}).json()
+                         json={"erp_type": "winthor", "name": "Cliente A"}).json()
 
     resp = raw_client.get(f"/api/projects/{p['id']}/imports", headers=analista_a2)
     assert resp.status_code == 403  # mesmo mesmo coordenador, analistas não veem uns dos outros
@@ -263,7 +263,7 @@ def test_analista_cannot_see_peer_analista_project_same_team(raw_client):
 def test_coordenador_cannot_resolve_exception_of_other_teams_project(raw_client):
     headers = _setup_two_teams(raw_client)
     project = raw_client.post("/api/projects", headers=headers["analista_a1"],
-                               json={"name": "P"}).json()
+                               json={"erp_type": "winthor", "name": "P"}).json()
     batch = _upload_sample(raw_client, headers["analista_a1"], project["id"]).json()
 
     exceptions = raw_client.get("/api/exceptions", headers=headers["coord_a"],
@@ -280,7 +280,7 @@ def test_coordenador_cannot_resolve_exception_of_other_teams_project(raw_client)
 def test_coordenador_can_assign_project_to_team_member(raw_client):
     headers = _setup_two_teams(raw_client)
     resp = raw_client.post("/api/projects", headers=headers["coord_a"],
-                            json={"name": "Atribuído", "owner_email": "analista_a1@teste.com"})
+                            json={"erp_type": "winthor", "name": "Atribuído", "owner_email": "analista_a1@teste.com"})
     assert resp.status_code == 200
     assert resp.json()["owner_id"] is not None
 
@@ -288,19 +288,19 @@ def test_coordenador_can_assign_project_to_team_member(raw_client):
 def test_coordenador_cannot_assign_project_outside_team(raw_client):
     headers = _setup_two_teams(raw_client)
     resp = raw_client.post("/api/projects", headers=headers["coord_a"],
-                            json={"name": "X", "owner_email": "analista_b1@teste.com"})
+                            json={"erp_type": "winthor", "name": "X", "owner_email": "analista_b1@teste.com"})
     assert resp.status_code == 403
 
 
 def test_analista_cannot_assign_project_to_anyone_else(raw_client):
     headers = _setup_two_teams(raw_client)
     resp = raw_client.post("/api/projects", headers=headers["analista_a1"],
-                            json={"name": "X", "owner_email": "analista_b1@teste.com"})
+                            json={"erp_type": "winthor", "name": "X", "owner_email": "analista_b1@teste.com"})
     assert resp.status_code == 403
 
 
 def test_diretor_can_assign_project_to_anyone(raw_client):
     headers = _setup_two_teams(raw_client)
     resp = raw_client.post("/api/projects", headers=headers["diretor"],
-                            json={"name": "X", "owner_email": "analista_b1@teste.com"})
+                            json={"erp_type": "winthor", "name": "X", "owner_email": "analista_b1@teste.com"})
     assert resp.status_code == 200
