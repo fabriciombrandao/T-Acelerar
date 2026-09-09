@@ -43,15 +43,26 @@ def process_import_task(self, batch_id: str, file_path: str) -> None:
     Celery separado pega da fila."""
     # Imports locais (não no topo do módulo) para não criar dependência
     # circular entre tasks.py <-> api.py <-> db.py no processo web.
-    from app.db import get_session
+    from app.db import ImportBatch, Project, get_session
     from app.pipeline import run_pipeline_csv
     from app.repository import (finalize_pipeline_result, mark_batch_failed,
                                  mark_batch_processing)
+    from app.winthor.text_file_generator import extra_pcprodut_field_names
 
     session = get_session()
     try:
         mark_batch_processing(session, batch_id)
-        result = run_pipeline_csv(file_path)
+
+        batch = session.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
+        project = session.query(Project).filter(Project.id == batch.project_id).first()
+        adherence_answers = (project.adherence_answers or {}) if project else {}
+
+        # Sempre Winthor por enquanto — quando existir um 2º ERP, despachar
+        # por project.erp_type (ver comentário equivalente em pipeline.py).
+        extra_fields = extra_pcprodut_field_names()
+
+        result = run_pipeline_csv(file_path, adherence_answers=adherence_answers,
+                                   extra_field_names=extra_fields)
         finalize_pipeline_result(session, batch_id, result)
     except Exception as exc:  # noqa: BLE001 — precisa capturar qualquer falha do pipeline
         mark_batch_failed(session, batch_id, str(exc))

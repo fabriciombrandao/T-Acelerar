@@ -49,6 +49,8 @@ def _create_user(client, actor_headers, email, role, manager_email=None, name="U
 
 
 def _upload_sample(client, headers, project_id):
+    client.post(f"/api/projects/{project_id}/adherence", headers=headers,
+                json={"segment": "varejo", "subsegment": "loja_unica"})
     with SAMPLE_CSV.open("rb") as f:
         return client.post(
             "/api/imports", headers=headers, data={"project_id": project_id},

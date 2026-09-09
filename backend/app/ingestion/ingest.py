@@ -37,6 +37,24 @@ def _normalize_header(h: str) -> str:
     return h.strip().lower().replace(" ", "_")
 
 
+def _match_extra_fields(row: dict, extra_field_names: list[str] | None) -> dict:
+    """Casa headers do CSV (já normalizados: minúsculo, espaço->underscore)
+    contra os nomes de campo Winthor (ex: 'CODSEC', 'PESOBRUTO') — captura
+    direto pro CanonicalProduct.extra quando o cliente já tiver a coluna.
+    Comparação tolerante a underscore/maiúscula (ex: 'cod_sec' bate com 'CODSEC')."""
+    if not extra_field_names:
+        return {}
+    lookup = {f.lower().replace("_", ""): f for f in extra_field_names}
+    extra: dict = {}
+    for header, value in row.items():
+        if value in (None, ""):
+            continue
+        key = header.lower().replace("_", "")
+        if key in lookup:
+            extra[lookup[key]] = value.strip() if isinstance(value, str) else value
+    return extra
+
+
 def resolve_column_map(headers: list[str], column_map: dict | None) -> dict:
     """Se column_map não for fornecido explicitamente, usa profiling automático
     (suggest_column_map) para inferir; cai para DEFAULT_COLUMN_MAP quando a
@@ -51,10 +69,14 @@ def resolve_column_map(headers: list[str], column_map: dict | None) -> dict:
 
 
 def ingest_csv(path: str | Path, column_map: dict | None = None,
-               source_label: str | None = None) -> Iterator[CanonicalProduct]:
+               source_label: str | None = None,
+               extra_field_names: list[str] | None = None) -> Iterator[CanonicalProduct]:
     """Lê um CSV de produtos e produz registros canônicos em status RAW/PARSED.
 
     Se column_map não for passado, infere automaticamente via profiling de headers.
+    extra_field_names (ex: os 34 campos do PCPRODUT sem lugar no modelo
+    canônico) são capturados em CanonicalProduct.extra quando a coluna
+    existir no arquivo de origem — ver app.winthor.text_file_generator.extra_pcprodut_field_names().
     """
     path = Path(path)
     batch_id = str(uuid.uuid4())[:8]
@@ -103,11 +125,22 @@ def ingest_csv(path: str | Path, column_map: dict | None = None,
                 field="*", origin=source_label or f"arquivo:{path.name}",
                 rule="ingest_csv", confidence=1.0,
             )
+
+            extra = _match_extra_fields(row, extra_field_names)
+            if extra:
+                product.extra.update(extra)
+                for field_name in extra:
+                    product.add_provenance(
+                        field=field_name, origin="arquivo_origem",
+                        rule="captura_direta_coluna", confidence=1.0,
+                    )
+
             yield product
 
 
 def ingest_excel(path: str | Path, column_map: dict | None = None,
-                  sheet_name: str | int = 0) -> Iterator[CanonicalProduct]:
+                  sheet_name: str | int = 0,
+                  extra_field_names: list[str] | None = None) -> Iterator[CanonicalProduct]:
     """Lê um XLSX de produtos. Requer openpyxl."""
     try:
         import openpyxl  # noqa: F401
@@ -131,6 +164,7 @@ def ingest_excel(path: str | Path, column_map: dict | None = None,
 
     for i, raw_row in enumerate(rows, start=1):
         row = dict(zip(headers, raw_row))
+        row_str = {k: (str(v) if v is not None else v) for k, v in row.items()}
         data: dict = {}
         for src_col, canon_field in column_map.items():
             val = row.get(src_col)
@@ -169,4 +203,14 @@ def ingest_excel(path: str | Path, column_map: dict | None = None,
             import_batch_id=batch_id,
         )
         product.add_provenance(field="*", origin=f"arquivo:{path.name}", rule="ingest_excel")
+
+        extra = _match_extra_fields(row_str, extra_field_names)
+        if extra:
+            product.extra.update(extra)
+            for field_name in extra:
+                product.add_provenance(
+                    field=field_name, origin="arquivo_origem",
+                    rule="captura_direta_coluna", confidence=1.0,
+                )
+
         yield product

@@ -41,7 +41,16 @@ def _create_project(client, name="Cliente Teste"):
     return resp.json()["id"]
 
 
+def _ensure_adherence(client, project_id):
+    """Configura um perfil simples (tudo opcional desligado) antes do upload
+    — o gate de /api/imports exige isso desde que o motor de aderência foi
+    conectado ao pipeline de verdade."""
+    client.post(f"/api/projects/{project_id}/adherence",
+                json={"segment": "varejo", "subsegment": "loja_unica"})
+
+
 def _upload_sample(client, project_id):
+    _ensure_adherence(client, project_id)
     with SAMPLE_CSV.open("rb") as f:
         return client.post(
             "/api/imports",
@@ -77,6 +86,20 @@ def test_import_requires_valid_project(client):
             files={"file": ("produtos_exemplo.csv", f, "text/csv")},
         )
     assert resp.status_code == 404
+
+
+def test_import_requires_adherence_configured_first(client):
+    """Gate: upload sem passar pelo wizard de aderência antes (POST
+    /projects/{id}/adherence) é bloqueado — sem isso, o pipeline roda
+    sem saber quais módulos são aplicáveis pro cliente."""
+    project_id = _create_project(client)
+    with SAMPLE_CSV.open("rb") as f:
+        resp = client.post(
+            "/api/imports", data={"project_id": project_id},
+            files={"file": ("produtos_exemplo.csv", f, "text/csv")},
+        )
+    assert resp.status_code == 400
+    assert "aderência" in resp.json()["detail"].lower()
 
 
 def test_import_creates_batch_with_exceptions(client):
@@ -115,12 +138,13 @@ def test_import_batch_marked_failed_on_pipeline_error(client, monkeypatch):
 
     import app.pipeline as pipeline_module
 
-    def _boom(path):
+    def _boom(path, **kwargs):
         raise ValueError("arquivo corrompido de propósito")
 
     monkeypatch.setattr(pipeline_module, "run_pipeline_csv", _boom)
 
     project_id = _create_project(client)
+    _ensure_adherence(client, project_id)
     fake_csv = io.BytesIO(b"codigo,descricao\n1,teste\n")
 
     # Modo eager propaga a exceção da task pra dentro da própria requisição.

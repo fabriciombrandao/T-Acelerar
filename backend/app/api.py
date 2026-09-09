@@ -414,7 +414,13 @@ async def create_import(project_id: str = Form(...), file: UploadFile = None,
     estiver rodando sem Redis configurado — modo síncrono de dev/teste).
     Use GET /imports/{id} para acompanhar o progresso em arquivo grande.
     """
-    _get_authorized_project(db, project_id, current_user)
+    project = _get_authorized_project(db, project_id, current_user)
+    if not project.segment:
+        raise HTTPException(
+            400,
+            "Configure o perfil de aderência do projeto (segmento/subsegmento) "
+            "antes de importar arquivos.",
+        )
     if not file or not file.filename.lower().endswith(".csv"):
         raise HTTPException(400, "Envie um arquivo .csv.")
 

@@ -44,9 +44,23 @@ class PipelineResult:
             json.dump(self.report, f, ensure_ascii=False, indent=2)
 
 
-def run_pipeline_csv(input_path: str | Path) -> PipelineResult:
+def run_pipeline_csv(input_path: str | Path, adherence_answers: dict | None = None,
+                      extra_field_names: list[str] | None = None) -> PipelineResult:
+    """
+    adherence_answers: respostas do wizard de aderência do projeto
+        ({module_id: bool}). Se None, pula a etapa de aderência inteira —
+        usado pelo CLI standalone e por testes que não têm projeto/wizard.
+        Se {} (wizard nunca preenchido), aplica módulos opcionais como
+        "não aplicável" (default) mas ainda cobra os campos sempre-obrigatórios
+        (cadastro básico, fiscal NCM) — ver app/winthor/adherence.py.
+    extra_field_names: nomes de campo (ex: os 34 do PCPRODUT sem lugar no
+        canônico) que a ingestão deve tentar capturar direto de colunas do
+        arquivo de origem. Hoje sempre vem do módulo Winthor
+        (extra_pcprodut_field_names()) — quando existir um segundo ERP,
+        este é o ponto que precisa despachar por Project.erp_type.
+    """
     # 1. Ingestão (RAW -> PARSED)
-    products = list(ingest_csv(input_path))
+    products = list(ingest_csv(input_path, extra_field_names=extra_field_names))
 
     # 2. Saneamento (PARSED -> NORMALIZED)
     products = [normalize_product(p) for p in products]
@@ -58,7 +72,16 @@ def run_pipeline_csv(input_path: str | Path) -> PipelineResult:
     dedup_exceptions = find_probable_duplicates(products)
     exceptions.extend(dedup_exceptions)
 
-    # 5. Data Readiness Score
+    # 5. Motor de aderência — aplica default de módulo não-aplicável,
+    # bloqueia campo obrigatório de módulo aplicável ausente.
+    if adherence_answers is not None:
+        from app.winthor.adherence import apply_adherence  # import local: pipeline.py é
+        # genérico hoje, mas a lógica de aderência já é Winthor-específica —
+        # quando existir 2º ERP, despachar aqui por qual conector o projeto usa.
+        adherence_exceptions = apply_adherence(products, adherence_answers)
+        exceptions.extend(adherence_exceptions)
+
+    # 6. Data Readiness Score
     report = quality_report(products, exceptions)
 
     return PipelineResult(products, exceptions, report)

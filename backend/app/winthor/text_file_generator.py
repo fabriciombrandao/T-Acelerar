@@ -37,6 +37,16 @@ def load_layout(path: str | Path = DEFAULT_LAYOUT_PATH) -> dict:
         return json.load(f)
 
 
+def extra_pcprodut_field_names(layout: dict | None = None) -> list[str]:
+    """Campos do PCPRODUT cuja fonte é 'extra:<campo>' — ou seja, não têm
+    lugar de primeira classe no modelo canônico e só chegam no arquivo
+    final se a ingestão capturar uma coluna de origem com esse nome (ou o
+    motor de aderência preencher um default). Usado pela ingestão pra
+    saber quais colunas do CSV do cliente devem virar CanonicalProduct.extra."""
+    layout = layout or load_layout()
+    return [c["field"] for c in layout["campos"] if c["fonte"].startswith("extra:")]
+
+
 def _resolve_value(product: dict, field_cfg: dict):
     """Lê o valor pela 'fonte' declarada no layout (core:<campo> ou extra:<campo>),
     com fallback_fonte quando o valor primário está vazio."""
