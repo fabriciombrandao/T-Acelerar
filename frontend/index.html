@@ -341,9 +341,10 @@
       <h1 style="font-size:15px;">Trocar senha</h1>
       <input type="password" x-model="changePasswordForm.current_password" placeholder="Senha atual" required autocomplete="current-password">
       <input type="password" x-model="changePasswordForm.new_password" placeholder="Nova senha (mínimo 8 caracteres)" required autocomplete="new-password">
+      <input type="password" x-model="changePasswordForm.new_password_confirm" placeholder="Confirmar nova senha" required autocomplete="new-password">
       <div style="display:flex; gap:8px;">
         <button type="submit" class="btn-primary" style="flex:1; justify-content:center;">Salvar</button>
-        <button type="button" class="btn-ghost" x-on:click="showChangePassword = false; changePasswordError = '';">Cancelar</button>
+        <button type="button" class="btn-ghost" x-on:click="showChangePassword = false; changePasswordError = ''; changePasswordForm = { current_password: '', new_password: '', new_password_confirm: '' };">Cancelar</button>
       </div>
       <div class="login-error" x-text="changePasswordError"></div>
     </form>
@@ -653,7 +654,7 @@ function app() {
     toastTimer: null,
 
     showChangePassword: false,
-    changePasswordForm: { current_password: '', new_password: '' },
+    changePasswordForm: { current_password: '', new_password: '', new_password_confirm: '' },
     changePasswordError: '',
 
     init: function() {
@@ -707,13 +708,24 @@ function app() {
     submitChangePassword: function() {
       var self = this;
       this.changePasswordError = '';
-      if (this.changePasswordForm.new_password.length < 8) {
+      var form = this.changePasswordForm;
+
+      if (form.new_password.length < 8) {
         this.changePasswordError = 'Nova senha precisa ter pelo menos 8 caracteres.';
         return;
       }
-      return API.postJson('/auth/change-password', this.changePasswordForm, this.token).then(function() {
+      if (form.new_password !== form.new_password_confirm) {
+        this.changePasswordError = 'Nova senha e confirmação não coincidem.';
+        return;
+      }
+      if (form.new_password === form.current_password) {
+        this.changePasswordError = 'Nova senha precisa ser diferente da senha atual.';
+        return;
+      }
+
+      return API.postJson('/auth/change-password', form, this.token).then(function() {
         self.showChangePassword = false;
-        self.changePasswordForm = { current_password: '', new_password: '' };
+        self.changePasswordForm = { current_password: '', new_password: '', new_password_confirm: '' };
         self.toast('Senha alterada.');
       }).catch(function(e) {
         self.changePasswordError = e.message;

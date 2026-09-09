@@ -223,6 +223,7 @@ def get_me(current_user: User = Depends(get_current_user)):
 class ChangePasswordIn(BaseModel):
     current_password: str
     new_password: str
+    new_password_confirm: str
 
 
 @router.post("/auth/change-password")
@@ -232,8 +233,12 @@ def change_password(payload: ChangePasswordIn, db: Session = Depends(get_db),
     a senha provisória que o admin/coordenador definiu ao criar a conta."""
     if not verify_password(payload.current_password, current_user.password_hash):
         raise HTTPException(400, "Senha atual incorreta.")
+    if payload.new_password != payload.new_password_confirm:
+        raise HTTPException(400, "Nova senha e confirmação não coincidem.")
     if len(payload.new_password) < 8:
         raise HTTPException(400, "Nova senha precisa ter pelo menos 8 caracteres.")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(400, "Nova senha precisa ser diferente da senha atual.")
 
     current_user.password_hash = hash_password(payload.new_password)
     db.commit()
