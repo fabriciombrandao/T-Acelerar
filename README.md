@@ -1,9 +1,12 @@
-# Winthor Data Deploy — módulo T-Acelerar
+# T-Acelerar — Módulo Winthor
 
 Aplicação web: **abrir projeto → subir arquivo → validar automaticamente →
 tratar exceções → gerar arquivo de carga** (texto oficial Winthor ou SQL
-alternativo). Parte da plataforma T-Acelerar (acelerador de projetos de
-implantação) — este módulo específico cobre migração de dados pro Winthor.
+alternativo). Parte da plataforma **T-Acelerar** — acelerador de projetos
+de implantação TOTVS, com módulos plugáveis por ERP. Este é o primeiro
+módulo, específico do Winthor; a estrutura (`app/winthor/` isolado do
+núcleo genérico — auth, projetos, Exception Queue, pipeline) já comporta
+outros módulos (ex: `app/protheus/`) no mesmo repositório quando existirem.
 
 ## Rodando local (sem Docker, dev solo)
 
@@ -253,7 +256,7 @@ rodado pra eles. Quando precisar, é o mesmo passo a passo abaixo trocando
 ```bash
 sudo mkdir -p /opt/tacelerar-winthor
 cd /opt/tacelerar-winthor
-sudo git clone https://github.com/fabriciombrandao/TOTVS-Acelerador-WINTHOR.git prod
+sudo git clone https://github.com/fabriciombrandao/T-Acelerar.git prod
 cd prod
 ```
 
