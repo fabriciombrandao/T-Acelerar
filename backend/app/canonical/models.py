@@ -82,3 +82,45 @@ class ExceptionRecord(BaseModel):
     severity: str = "MEDIUM"   # LOW | MEDIUM | HIGH | BLOCKER
     payload: dict = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class CanonicalParticipante(BaseModel):
+    """Cliente e/ou Fornecedor — mesma entidade fiscal (CNPJ/CPF), podendo
+    ser as duas coisas ao mesmo tempo pra uma empresa real (compra E vende
+    pra outra empresa). `tipo` guarda os papéis observados nos documentos
+    fiscais processados: {"cliente"}, {"fornecedor"} ou {"cliente", "fornecedor"}.
+
+    Só uma fração pequena do PCCLIENT/PCFORNEC (64 e ~20 campos
+    respectivamente) vem de documento fiscal — nome, CNPJ/CPF, IE,
+    endereço. O resto (limite de crédito, vendedor responsável, forma de
+    pagamento, praça) é dado comercial que não existe em NF-e/SPED —
+    mesmo padrão do PCPRODUT: fica pra um motor de aderência tratar depois,
+    não inventado aqui.
+    """
+    external_id: str          # COD_PART do SPED, ou CNPJ/CPF quando vem de XML sem código próprio
+    nome: str
+    cnpj: Optional[str] = None
+    cpf: Optional[str] = None
+    ie: Optional[str] = None
+    cod_municipio: Optional[str] = None
+    endereco: Optional[str] = None
+    numero: Optional[str] = None
+    complemento: Optional[str] = None
+    bairro: Optional[str] = None
+    tipo: set[str] = Field(default_factory=set)  # {"cliente"} | {"fornecedor"} | ambos
+    status: RecordStatus = RecordStatus.RAW
+
+    extra: dict = Field(default_factory=dict)
+
+    source_file: Optional[str] = None
+    import_batch_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    provenance: list[FieldProvenance] = Field(default_factory=list)
+
+    def add_provenance(self, field: str, origin: str, rule: str | None = None,
+                        confidence: float = 1.0, evidence: str | None = None) -> None:
+        self.provenance.append(
+            FieldProvenance(field=field, origin=origin, rule=rule,
+                             confidence=confidence, evidence=evidence)
+        )
