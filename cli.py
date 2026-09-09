@@ -15,7 +15,7 @@ from app.pipeline import run_pipeline_csv  # noqa: E402
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Winthor Data Deploy — pipeline de produtos")
+    parser = argparse.ArgumentParser(description="T-Acelerar (módulo Winthor) — pipeline de produtos")
     parser.add_argument("input_csv", help="Caminho do CSV de produtos")
     parser.add_argument("--out", default="output", help="Diretório de saída")
     args = parser.parse_args()

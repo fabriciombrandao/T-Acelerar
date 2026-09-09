@@ -91,7 +91,7 @@ def generate_insert_script(products: list[dict], blocked_record_ids: set[str],
     skipped: list[str] = []
 
     lines: list[str] = [
-        f"-- Winthor Data Deploy — script de carga gerado em "
+        f"-- T-Acelerar (módulo Winthor) — script de carga gerado em "
         f"{datetime.now(timezone.utc).isoformat()}",
         f"-- Lote: {batch_id or 'N/A'} | Tabela destino: {table}",
         "-- ATENÇÃO: mapping ainda não validado contra dicionário oficial Winthor.",
