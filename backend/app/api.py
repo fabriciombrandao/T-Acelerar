@@ -38,6 +38,7 @@ from app.erps import SUPPORTED_ERPS, is_supported_erp
 from app.repository import create_pending_batch
 from app.tasks import process_import_task
 from app.validation.br_documents import validate_cnpj
+from app.validation.rules import NCM_RE, validate_ean13
 from app.winthor.adherence import (load_modules_config, load_segments_config,
                                     preset_for_subsegment)
 from app.winthor.oracle_generator import generate_insert_script
@@ -600,6 +601,75 @@ def list_products(batch_id: str, response: Response, limit: int = 200, offset: i
         }
         for p in products
     ]
+
+
+# Campo corrigível -> reason_code(s) de exceção que a correção resolve
+# automaticamente. Só os casos onde "corrigir o campo" tem significado
+# claro e objetivo (EAN tem dígito verificador, NCM tem formato fixo) —
+# não é edição livre de qualquer coisa.
+_PRODUCT_FIELD_TO_REASONS = {
+    "barcode": ["EAN_INVALIDO"],
+    "ncm": ["NCM_AUSENTE", "NCM_INVALIDO"],
+}
+
+
+class ProductFieldUpdateIn(BaseModel):
+    field: str
+    value: Optional[str] = None
+
+
+@router.patch("/imports/{batch_id}/products/{external_id}")
+def update_product_field(batch_id: str, external_id: str, payload: ProductFieldUpdateIn,
+                          db: Session = Depends(get_db),
+                          current_user: User = Depends(get_current_user)):
+    """Corrige o valor de um campo específico — diferente de Aprovar
+    (deixa passar do jeito que está) ou Rejeitar (exclui do arquivo
+    final), isso muda o dado de verdade. Resolve automaticamente
+    qualquer exceção PENDING desse registro ligada a esse campo (ex:
+    corrigir barcode resolve EAN_INVALIDO sozinho — não precisa aprovar
+    manualmente depois)."""
+    if payload.field not in _PRODUCT_FIELD_TO_REASONS:
+        raise HTTPException(
+            400, f"Campo '{payload.field}' não é corrigível por aqui. "
+                 f"Opções: {list(_PRODUCT_FIELD_TO_REASONS)}.",
+        )
+    _get_authorized_batch(db, batch_id, current_user)
+
+    product = (
+        db.query(ProductRecord)
+        .filter(ProductRecord.batch_id == batch_id, ProductRecord.external_id == external_id)
+        .first()
+    )
+    if not product:
+        raise HTTPException(404, "Produto não encontrado neste lote.")
+
+    if payload.field == "barcode" and payload.value and not validate_ean13(payload.value):
+        raise HTTPException(400, "Código de barras com dígito verificador inválido.")
+    if payload.field == "ncm" and payload.value and not NCM_RE.match(payload.value):
+        raise HTTPException(400, "NCM precisa ter exatamente 8 dígitos.")
+
+    setattr(product, payload.field, payload.value)
+
+    reasons = _PRODUCT_FIELD_TO_REASONS[payload.field]
+    db.query(ExceptionRow).filter(
+        ExceptionRow.batch_id == batch_id,
+        ExceptionRow.entity == "Product",
+        ExceptionRow.record_id == external_id,
+        ExceptionRow.reason_code.in_(reasons),
+        ExceptionRow.resolution_status == "PENDING",
+    ).update({
+        "resolution_status": "APPROVED",
+        "resolved_by": current_user.email,
+        "resolution_note": "Corrigido manualmente",
+        "resolved_at": datetime.now(timezone.utc),
+    }, synchronize_session=False)
+
+    db.commit()
+    db.refresh(product)
+    return {
+        "external_id": product.external_id, "sku": product.sku,
+        "description": product.description, "ncm": product.ncm, "barcode": product.barcode,
+    }
 
 
 @router.get("/imports/{batch_id}/participantes")

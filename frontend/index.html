@@ -569,6 +569,14 @@
                         <span class="reason" x-text="LABELS.entityLabel(ex.entity) + ': ' + LABELS.reasonLabel(ex.reason_code)"></span>
                         <span class="desc" x-text="ex.description"></span>
                         <span class="status-line" x-text="ex.record_id + ' - ' + LABELS.statusLabel(ex.resolution_status) + (ex.resolved_by ? ' - ' + ex.resolved_by : '')"></span>
+                        <template x-if="ex.resolution_status === 'PENDING' && CORRECTABLE_FIELDS[ex.reason_code]">
+                          <div style="display:flex; gap:6px; margin-top:6px;">
+                            <input type="text" x-model="correctionValue[ex.id]" placeholder="Valor correto"
+                                   style="font-size:12px; padding:4px 8px;">
+                            <button class="btn-primary" style="font-size:12px; padding:4px 10px;"
+                                    x-on:click="correctProductField(ex)">Corrigir</button>
+                          </div>
+                        </template>
                       </div>
                       <div class="exception-actions" x-show="ex.resolution_status === 'PENDING'">
                         <button class="btn-ghost" x-on:click="resolveException(ex.id, 'APPROVED')">Aprovar</button>
@@ -708,6 +716,12 @@ var LABELS = {
   entityLabel: function(code) { return this.entity[code] || code; },
 };
 
+// Motivo de exceção corrigível -> campo do produto que a correção altera.
+// Só os casos onde "corrigir" tem significado objetivo (checksum/formato).
+var CORRECTABLE_FIELDS = {
+  EAN_INVALIDO: 'barcode', NCM_AUSENTE: 'ncm', NCM_INVALIDO: 'ncm',
+};
+
 var API = {
   // Backend agora é container separado do frontend (nginx roteia /api/*
   // pro backend e o resto pro frontend — padrão do time, ver
@@ -797,6 +811,7 @@ function app() {
     exceptionsLimit: 50,
     exceptionsSummary: [],
     exceptionsViewMode: 'grouped',
+    correctionValue: {},
 
     teamUsers: [],
     newUserForm: { name: '', email: '', password: '', role: 'analista', manager_email: '' },
@@ -1172,6 +1187,25 @@ function app() {
       }).then(function(resp) {
         if (!resp) return;
         self.toast(decision === 'APPROVED' ? 'Excecao aprovada.' : 'Excecao rejeitada.');
+        return Promise.all([self.loadExceptions(), self.loadExceptionsSummary(),
+                             self.loadReadiness(), self.loadReport(), self.loadBatches()]);
+      });
+    },
+
+    correctProductField: function(ex) {
+      var self = this;
+      var field = CORRECTABLE_FIELDS[ex.reason_code];
+      var value = (this.correctionValue[ex.id] || '').trim();
+      if (!field || !value) return;
+
+      return this.call(function() {
+        return API.request('/imports/' + self.currentBatch.id + '/products/' + ex.record_id, {
+          method: 'PATCH', json: { field: field, value: value }, token: self.token,
+        });
+      }).then(function(resp) {
+        if (!resp) return;
+        self.correctionValue[ex.id] = '';
+        self.toast('Corrigido.');
         return Promise.all([self.loadExceptions(), self.loadExceptionsSummary(),
                              self.loadReadiness(), self.loadReport(), self.loadBatches()]);
       });

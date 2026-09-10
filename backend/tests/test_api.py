@@ -488,6 +488,66 @@ def test_bulk_resolve_rejects_invalid_decision(client):
     assert resp.status_code == 400
 
 
+def test_update_product_field_corrects_invalid_barcode(client):
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+    # produto 5 (FEIJAO CARIOCA) tem EAN '1234567890123' — dígito verificador inválido
+    resp = client.patch(f"/api/imports/{batch['id']}/products/5",
+                         json={"field": "barcode", "value": "7891234567895"})
+    assert resp.status_code == 200
+    assert resp.json()["barcode"] == "7891234567895"
+
+
+def test_update_product_field_auto_resolves_ean_invalido_exception(client):
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+
+    antes = client.get("/api/exceptions", params={"batch_id": batch["id"]}).json()
+    tinha_ean_invalido = any(e["reason_code"] == "EAN_INVALIDO" and e["record_id"] == "5"
+                              for e in antes)
+    assert tinha_ean_invalido
+
+    client.patch(f"/api/imports/{batch['id']}/products/5",
+                 json={"field": "barcode", "value": "7891234567895"})
+
+    depois = client.get("/api/exceptions", params={"batch_id": batch["id"]}).json()
+    ainda_pendente = any(e["reason_code"] == "EAN_INVALIDO" and e["record_id"] == "5"
+                          and e["resolution_status"] == "PENDING" for e in depois)
+    assert not ainda_pendente
+
+
+def test_update_product_field_rejects_invalid_ean_checksum(client):
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+    resp = client.patch(f"/api/imports/{batch['id']}/products/5",
+                         json={"field": "barcode", "value": "1111111111111"})
+    assert resp.status_code == 400
+
+
+def test_update_product_field_rejects_invalid_ncm_format(client):
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+    resp = client.patch(f"/api/imports/{batch['id']}/products/5",
+                         json={"field": "ncm", "value": "123"})
+    assert resp.status_code == 400
+
+
+def test_update_product_field_rejects_unknown_field(client):
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+    resp = client.patch(f"/api/imports/{batch['id']}/products/5",
+                         json={"field": "description", "value": "NOVO NOME"})
+    assert resp.status_code == 400
+
+
+def test_update_product_field_requires_existing_product(client):
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+    resp = client.patch(f"/api/imports/{batch['id']}/products/9999",
+                         json={"field": "barcode", "value": "7891234567895"})
+    assert resp.status_code == 404
+
+
 def test_resolve_exception_updates_status(client):
     project_id = _create_project(client)
     _upload_sample(client, project_id)
