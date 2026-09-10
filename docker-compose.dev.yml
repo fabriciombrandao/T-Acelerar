@@ -84,7 +84,7 @@ services:
     container_name: tacelerar-dev-celery-worker
     restart: unless-stopped
     env_file: .env
-    command: celery -A app.tasks worker --loglevel=info --concurrency=1 --app-dir /app/backend
+    command: celery -A app.tasks worker --loglevel=info --concurrency=1
     volumes:
       - /opt/tacelerar/dev/data/uploads:/app/output
       - /opt/tacelerar/dev/logs:/app/logs

@@ -15,7 +15,7 @@ COPY frontend/ frontend/
 COPY mappings/ mappings/
 
 ENV PYTHONPATH=/app/backend
-ENV WINTHOR_DB_URL=sqlite:////app/data/winthor_data_deploy.db
+ENV TACELERAR_DB_URL=sqlite:////app/data/tacelerar.db
 
 RUN mkdir -p /app/data /app/output/scripts
 
