@@ -24,7 +24,21 @@ def parse_sped_records(path: str | Path) -> dict[str, list[list[str]]]:
     em records["0150"] = ["123", "FULANO LTDA", ...].
     """
     records: dict[str, list[list[str]]] = {}
+    for reg, campos in parse_sped_records_ordered(path):
+        records.setdefault(reg, []).append(campos)
+    return records
+
+
+def parse_sped_records_ordered(path: str | Path) -> list[tuple[str, list[str]]]:
+    """Igual a parse_sped_records, mas preserva a ORDEM original do arquivo
+    em vez de agrupar por tipo. Necessário quando o significado de um
+    registro depende do registro "pai" que veio antes dele no arquivo —
+    ex: C170 (item de documento fiscal) só faz sentido junto do C100
+    (documento fiscal) mais recente que o precede, que diz se é
+    entrada/saída e a data. parse_sped_records() perde essa relação
+    (agrupa tudo por tipo), esta função não."""
     path = Path(path)
+    registros: list[tuple[str, list[str]]] = []
 
     with path.open(encoding="iso-8859-1", newline="") as f:
         for line in f:
@@ -32,8 +46,6 @@ def parse_sped_records(path: str | Path) -> dict[str, list[list[str]]]:
             if not line:
                 continue
             fields = line.split("|")
-            # Linha bem formada começa e termina com '|', gerando string
-            # vazia como primeiro e último elemento do split — descarta.
             if fields and fields[0] == "":
                 fields = fields[1:]
             if fields and fields[-1] == "":
@@ -43,6 +55,6 @@ def parse_sped_records(path: str | Path) -> dict[str, list[list[str]]]:
 
             reg = fields[0]
             campos = fields[1:]
-            records.setdefault(reg, []).append(campos)
+            registros.append((reg, campos))
 
-    return records
+    return registros

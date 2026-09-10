@@ -112,8 +112,8 @@ def test_different_weight_never_flagged_as_duplicate_even_if_text_very_similar()
     tamanho de embalagem diferentes). Medida diferente sempre vence, não
     importa a similaridade do resto."""
     products = [
-        _product("1", "P1", "PAO DE QUEIJO 90G PCT 5KG", brand="CEMAR"),
-        _product("2", "P2", "PAO DE QUEIJO 30G PCT 1KG", brand="CEMAR"),
+        _product("1", "P1", "PAO DE QUEIJO 90G PCT 5KG", brand="MARCA TESTE"),
+        _product("2", "P2", "PAO DE QUEIJO 30G PCT 1KG", brand="MARCA TESTE"),
     ]
     exceptions = find_probable_duplicates(products)
     assert exceptions == []
@@ -121,8 +121,8 @@ def test_different_weight_never_flagged_as_duplicate_even_if_text_very_similar()
 
 def test_same_weight_different_pack_size_never_flagged():
     products = [
-        _product("1", "P1", "ROSQUINHA DE QUEIJO 30G PCT 5KG", brand="CEMAR"),
-        _product("2", "P2", "ROSQUINHA DE QUEIJO 30G PCT 1KG", brand="CEMAR"),
+        _product("1", "P1", "ROSQUINHA DE QUEIJO 30G PCT 5KG", brand="MARCA TESTE"),
+        _product("2", "P2", "ROSQUINHA DE QUEIJO 30G PCT 1KG", brand="MARCA TESTE"),
     ]
     exceptions = find_probable_duplicates(products)
     assert exceptions == []

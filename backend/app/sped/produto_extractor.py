@@ -13,11 +13,13 @@ numeração entre arquivos: COD_ITEM sozinho já é a chave de consolidação.
 from __future__ import annotations
 
 from app.canonical.models import CanonicalProduct, RecordStatus
+from app.sped.custo_extractor import extract_custo_unitario_from_sped
 from app.sped.parser import parse_sped_records
 
 
 def extract_produtos_from_sped(paths: list, source_label: str | None = None) -> list[CanonicalProduct]:
     by_key: dict[str, CanonicalProduct] = {}
+    custos = extract_custo_unitario_from_sped(paths)
 
     for path in paths:
         from pathlib import Path
@@ -46,6 +48,17 @@ def extract_produtos_from_sped(paths: list, source_label: str | None = None) -> 
                     status=RecordStatus.PARSED,
                     source_file=source_label or path.name,
                 )
+                custo = custos.get(cod_item)
+                if custo:
+                    product.extra["CUSTO_UNITARIO"] = custo["valor_unitario"]
+                    if custo["data"]:
+                        ano, mes, dia = custo["data"]
+                        product.extra["CUSTO_UNITARIO_DATA"] = f"{dia:02d}/{mes:02d}/{ano}"
+                    product.add_provenance(
+                        field="CUSTO_UNITARIO", origin="sped_c170",
+                        rule="valor_item_dividido_por_quantidade_compra_mais_recente",
+                        confidence=1.0,
+                    )
                 product.add_provenance(
                     field="*", origin=f"sped:{path.name}", rule="registro_0200", confidence=1.0,
                 )

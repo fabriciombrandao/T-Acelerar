@@ -3,6 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from app.sped.custo_extractor import extract_custo_unitario_from_sped
 from app.sped.parser import parse_sped_records
 from app.sped.participante_extractor import extract_participantes_from_sped
 from app.sped.produto_extractor import extract_produtos_from_sped
@@ -164,3 +165,43 @@ def test_extract_produto_from_sped_skips_blank_cod_item():
 
     produtos = extract_produtos_from_sped([path])
     assert produtos == []
+
+
+# ---------- Custo unitário (C170: VL_ITEM / QTD, entrada mais recente) ----------
+
+CUSTO_FIXTURE = Path(__file__).parent / "fixtures" / "sped_custo_exemplo.txt"
+
+
+def test_custo_unitario_uses_most_recent_entrada():
+    custos = extract_custo_unitario_from_sped([CUSTO_FIXTURE])
+    # COD_ITEM=1 tem 2 compras: 10/08 (100/10=10.00) e 25/08 (150/10=15.00).
+    # A mais recente (25/08) tem que vencer.
+    assert custos["1"]["valor_unitario"] == 15.00
+    assert custos["1"]["data"] == (2026, 8, 25)
+
+
+def test_custo_unitario_ignores_saida_transactions():
+    """COD_ITEM=2 só aparece numa transação de SAÍDA (venda) — venda não
+    vira custo, então não deveria ter entrada no dicionário de custos."""
+    custos = extract_custo_unitario_from_sped([CUSTO_FIXTURE])
+    assert "2" not in custos
+
+
+def test_custo_unitario_absent_for_item_never_transacted():
+    custos = extract_custo_unitario_from_sped([CUSTO_FIXTURE])
+    assert "3" not in custos
+
+
+def test_extract_produto_from_sped_populates_custo_unitario_in_extra():
+    produtos = extract_produtos_from_sped([CUSTO_FIXTURE])
+    p1 = next(p for p in produtos if p.external_id == "1")
+    assert p1.extra["CUSTO_UNITARIO"] == 15.00
+    assert p1.extra["CUSTO_UNITARIO_DATA"] == "25/08/2026"
+
+
+def test_extract_produto_from_sped_no_custo_key_when_never_purchased():
+    produtos = extract_produtos_from_sped([CUSTO_FIXTURE])
+    p2 = next(p for p in produtos if p.external_id == "2")
+    p3 = next(p for p in produtos if p.external_id == "3")
+    assert "CUSTO_UNITARIO" not in p2.extra
+    assert "CUSTO_UNITARIO" not in p3.extra
