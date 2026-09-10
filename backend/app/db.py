@@ -64,13 +64,18 @@ class ImportBatch(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     status = Column(String, default="PENDING")  # PENDING | PROCESSING | DONE | FAILED
     error_message = Column(String, nullable=True)
-    total_records = Column(Integer, default=0)
+    total_records = Column(Integer, default=0)      # soma de todas as entidades
+    product_count = Column(Integer, default=0)
+    participante_count = Column(Integer, default=0)
+    cliente_count = Column(Integer, default=0)       # subconjunto de participante_count (papel)
+    fornecedor_count = Column(Integer, default=0)    # idem — participante pode contar nos 2
     exception_count = Column(Integer, default=0)
     data_readiness_score = Column(Float, default=0.0)
     report = Column(JSON, default=dict)
 
     project = relationship("Project", back_populates="batches")
     products = relationship("ProductRecord", back_populates="batch", cascade="all, delete-orphan")
+    participantes = relationship("ParticipanteRecord", back_populates="batch", cascade="all, delete-orphan")
     exceptions = relationship("ExceptionRow", back_populates="batch", cascade="all, delete-orphan")
 
 
@@ -98,6 +103,34 @@ class ProductRecord(Base):
     extra = Column(JSON, default=dict)
 
     batch = relationship("ImportBatch", back_populates="products")
+
+
+class ParticipanteRecord(Base):
+    __tablename__ = "participantes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    batch_id = Column(String, ForeignKey("import_batches.id"), nullable=False, index=True)
+
+    external_id = Column(String, nullable=False)
+    nome = Column(String, nullable=False)
+    cnpj = Column(String, index=True)
+    cpf = Column(String, index=True)
+    ie = Column(String)
+    cod_municipio = Column(String)
+    municipio = Column(String)
+    uf = Column(String)
+    cep = Column(String)
+    fone = Column(String)
+    endereco = Column(String)
+    numero = Column(String)
+    complemento = Column(String)
+    bairro = Column(String)
+    tipo = Column(JSON, default=list)  # ["cliente"] | ["fornecedor"] | ambos
+    status = Column(String, default="RAW")
+    provenance = Column(JSON, default=list)
+    extra = Column(JSON, default=dict)
+
+    batch = relationship("ImportBatch", back_populates="participantes")
 
 
 class ExceptionRow(Base):

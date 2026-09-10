@@ -479,7 +479,11 @@
                 <div class="filename" x-text="b.source_file"></div>
                 <div class="meta">
                   <span class="status-pill" x-bind:class="'status-' + b.status" x-text="b.status"></span>
-                  &nbsp;<span x-text="b.total_records"></span> registros -
+                  &nbsp;<span x-text="b.total_records"></span> registros
+                  <template x-if="b.participante_count > 0">
+                    <span>(<span x-text="b.product_count"></span> produto, <span x-text="b.cliente_count"></span> cliente, <span x-text="b.fornecedor_count"></span> fornecedor)</span>
+                  </template>
+                  -
                   <span x-text="b.exception_count"></span> excecoes -
                   readiness <span x-text="Math.round(b.data_readiness_score * 100)"></span>%
                 </div>
@@ -493,6 +497,14 @@
           <div>
             <section class="panel">
               <h2><i data-lucide="alert-triangle" style="width:16px;height:16px;"></i> Fila de excecoes</h2>
+              <template x-if="currentBatch.participante_count > 0">
+                <div class="stat-grid" style="margin-bottom:10px;">
+                  <div class="stat-box"><div class="value" x-text="currentBatch.product_count"></div><div class="label">produto</div></div>
+                  <div class="stat-box"><div class="value" x-text="currentBatch.cliente_count"></div><div class="label">cliente</div></div>
+                  <div class="stat-box"><div class="value" x-text="currentBatch.fornecedor_count"></div><div class="label">fornecedor</div></div>
+                  <div class="stat-box"><div class="value" x-text="currentBatch.participante_count"></div><div class="label">participante (total)</div></div>
+                </div>
+              </template>
               <div class="stat-grid" x-show="report">
                 <div class="stat-box"><div class="value" x-text="report ? report.total_registros : 0"></div><div class="label">registros</div></div>
                 <div class="stat-box"><div class="value" x-text="report ? report.total_excecoes : 0"></div><div class="label">excecoes</div></div>
@@ -505,7 +517,7 @@
                 <div class="exception-row" x-bind:class="['sev-' + ex.severity, ex.resolution_status !== 'PENDING' ? 'resolved' : '']">
                   <div class="sev-tag" x-text="ex.severity"></div>
                   <div class="exception-body">
-                    <span class="reason" x-text="ex.reason_code"></span>
+                    <span class="reason" x-text="ex.entity + ': ' + ex.reason_code"></span>
                     <span class="desc" x-text="ex.description"></span>
                     <span class="status-line" x-text="ex.record_id + ' - ' + ex.resolution_status + (ex.resolved_by ? ' - ' + ex.resolved_by : '')"></span>
                   </div>

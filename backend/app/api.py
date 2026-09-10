@@ -32,8 +32,8 @@ from app.auth import (Role, authenticate_user, can_see_owner, create_access_toke
                        create_user, get_current_coordenador_ou_acima,
                        get_current_diretor, get_current_user, hash_password,
                        verify_password, visible_owner_ids)
-from app.db import (ExceptionRow, ImportBatch, Project, ProductRecord, User,
-                     get_db, init_db)
+from app.db import (ExceptionRow, ImportBatch, ParticipanteRecord, Project,
+                     ProductRecord, User, get_db, init_db)
 from app.erps import SUPPORTED_ERPS, is_supported_erp
 from app.repository import create_pending_batch
 from app.tasks import process_import_task
@@ -183,6 +183,10 @@ class BatchSummary(BaseModel):
     status: str
     error_message: Optional[str] = None
     total_records: int
+    product_count: int = 0
+    participante_count: int = 0
+    cliente_count: int = 0
+    fornecedor_count: int = 0
     exception_count: int
     data_readiness_score: float
     model_config = ConfigDict(from_attributes=True)
@@ -519,6 +523,41 @@ def list_products(batch_id: str, response: Response, limit: int = 200, offset: i
             "status": p.status, "ncm": p.ncm, "barcode": p.barcode,
         }
         for p in products
+    ]
+
+
+@router.get("/imports/{batch_id}/participantes")
+def list_participantes(batch_id: str, response: Response, tipo: Optional[str] = None,
+                        limit: int = 200, offset: int = 0,
+                        db: Session = Depends(get_db),
+                        current_user: User = Depends(get_current_user)):
+    """Igual /products, mas pra Cliente/Fornecedor. tipo=cliente|fornecedor
+    filtra por papel (participante com os dois papéis aparece nos dois
+    filtros — não é exclusivo)."""
+    limit = max(1, min(limit, 1000))
+    offset = max(0, offset)
+
+    _get_authorized_batch(db, batch_id, current_user)
+    base_query = db.query(ParticipanteRecord).filter(ParticipanteRecord.batch_id == batch_id)
+    if tipo:
+        if tipo not in ("cliente", "fornecedor"):
+            raise HTTPException(400, "tipo deve ser 'cliente' ou 'fornecedor'.")
+        # .contains() em coluna JSON não é portável entre SQLite/Postgres de
+        # forma confiável — tipo é sempre um JSON list de strings controladas
+        # (só "cliente"/"fornecedor"), então LIKE no texto serializado é
+        # seguro e funciona igual nos dois bancos.
+        base_query = base_query.filter(ParticipanteRecord.tipo.like(f'%"{tipo}"%'))
+
+    total = base_query.count()
+    participantes = base_query.order_by(ParticipanteRecord.id).offset(offset).limit(limit).all()
+
+    response.headers["X-Total-Count"] = str(total)
+    return [
+        {
+            "external_id": p.external_id, "nome": p.nome, "cnpj": p.cnpj, "cpf": p.cpf,
+            "tipo": p.tipo, "municipio": p.municipio, "uf": p.uf, "status": p.status,
+        }
+        for p in participantes
     ]
 
 

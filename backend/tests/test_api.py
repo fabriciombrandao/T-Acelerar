@@ -119,6 +119,91 @@ def test_import_source_type_sped_works_end_to_end(client):
     assert batch["total_records"] > 0
 
 
+def test_import_sped_produces_both_produto_and_participante_with_breakdown(client):
+    """SPED gera as duas entidades da mesma fonte — total_records tem que
+    ser a soma, e as contagens por entidade batem com o que o fixture tem
+    (1 produto, 3 participantes — 1 cliente puro, 1 fornecedor puro, 1 os
+    dois — ver fixtures/sped_exemplo.txt)."""
+    project_id = _create_project(client)
+    _ensure_adherence(client, project_id)
+    with SPED_FIXTURE.open("rb") as f:
+        resp = client.post(
+            "/api/imports",
+            data={"project_id": project_id, "source_type": "sped"},
+            files=[("files", ("sped_exemplo.txt", f, "text/plain"))],
+        )
+    data = resp.json()
+    assert data["product_count"] == 1
+    assert data["participante_count"] == 3
+    assert data["cliente_count"] == 2   # 1 puro + 1 misto
+    assert data["fornecedor_count"] == 2  # 1 puro + 1 misto
+    assert data["total_records"] == data["product_count"] + data["participante_count"]
+
+
+def test_list_participantes_endpoint_returns_records(client):
+    project_id = _create_project(client)
+    _ensure_adherence(client, project_id)
+    with SPED_FIXTURE.open("rb") as f:
+        batch = client.post(
+            "/api/imports",
+            data={"project_id": project_id, "source_type": "sped"},
+            files=[("files", ("sped_exemplo.txt", f, "text/plain"))],
+        ).json()
+
+    resp = client.get(f"/api/imports/{batch['id']}/participantes")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 3
+    assert resp.headers["X-Total-Count"] == "3"
+
+
+def test_list_participantes_filters_by_tipo(client):
+    project_id = _create_project(client)
+    _ensure_adherence(client, project_id)
+    with SPED_FIXTURE.open("rb") as f:
+        batch = client.post(
+            "/api/imports",
+            data={"project_id": project_id, "source_type": "sped"},
+            files=[("files", ("sped_exemplo.txt", f, "text/plain"))],
+        ).json()
+
+    clientes = client.get(f"/api/imports/{batch['id']}/participantes",
+                           params={"tipo": "cliente"}).json()
+    fornecedores = client.get(f"/api/imports/{batch['id']}/participantes",
+                               params={"tipo": "fornecedor"}).json()
+    assert len(clientes) == 2
+    assert len(fornecedores) == 2
+    # o participante misto aparece nos dois
+    nomes_cliente = {c["nome"] for c in clientes}
+    nomes_fornecedor = {f["nome"] for f in fornecedores}
+    assert nomes_cliente & nomes_fornecedor  # interseção não vazia
+
+
+def test_list_participantes_rejects_invalid_tipo(client):
+    project_id = _create_project(client)
+    _ensure_adherence(client, project_id)
+    with SPED_FIXTURE.open("rb") as f:
+        batch = client.post(
+            "/api/imports",
+            data={"project_id": project_id, "source_type": "sped"},
+            files=[("files", ("sped_exemplo.txt", f, "text/plain"))],
+        ).json()
+
+    resp = client.get(f"/api/imports/{batch['id']}/participantes", params={"tipo": "invalido"})
+    assert resp.status_code == 400
+
+
+def test_csv_import_has_zero_participante_count(client):
+    """CSV nunca extrai participante — breakdown tem que refletir isso
+    honestamente (0, não ausente/None)."""
+    project_id = _create_project(client)
+    resp = _upload_sample(client, project_id)
+    data = resp.json()
+    assert data["participante_count"] == 0
+    assert data["cliente_count"] == 0
+    assert data["fornecedor_count"] == 0
+    assert data["total_records"] == data["product_count"]
+
+
 def test_import_source_type_xml_requires_company_cnpj_on_project(client):
     """Projeto sem company_cnpj configurado não pode importar XML — sem
     isso não dá pra classificar entrada/saída de cada nota."""
@@ -149,7 +234,10 @@ def test_import_source_type_xml_works_with_company_cnpj_configured(client):
             files=[("files", ("saida_cliente_a.xml", f, "application/xml"))],
         )
     assert resp.status_code == 200
-    assert resp.json()["total_records"] == 1
+    data = resp.json()
+    assert data["product_count"] == 1
+    assert data["cliente_count"] == 1
+    assert data["total_records"] == 2  # produto + participante juntos
 
 
 def test_import_source_type_csv_rejects_multiple_files(client):

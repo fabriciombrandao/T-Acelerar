@@ -44,13 +44,16 @@ def process_import_task(self, batch_id: str, file_paths: list, source_type: str 
 
     file_paths é sempre uma lista (mesmo pra CSV, que só aceita 1 arquivo
     — mantém a assinatura uniforme pros 3 source_type). source_type
-    decide qual pipeline roda: 'csv' -> run_pipeline_csv (original);
-    'sped'/'xml' -> run_pipeline_multi_source (consolidação por EAN)."""
+    decide qual pipeline roda: 'csv' -> só produto (run_pipeline_csv,
+    original); 'sped'/'xml' -> produto E participante juntos (a mesma
+    fonte fiscal dá as duas entidades de uma vez, não é escolha de
+    ou-um-ou-outro)."""
     # Imports locais (não no topo do módulo) para não criar dependência
     # circular entre tasks.py <-> api.py <-> db.py no processo web.
     from app.db import ImportBatch, Project, get_session
-    from app.pipeline import run_pipeline_csv, run_pipeline_multi_source
-    from app.repository import (finalize_pipeline_result, mark_batch_failed,
+    from app.pipeline import (run_participante_pipeline, run_pipeline_csv,
+                               run_pipeline_multi_source)
+    from app.repository import (finalize_multi_entity_result, mark_batch_failed,
                                  mark_batch_processing)
     from app.winthor.text_file_generator import extra_pcprodut_field_names
 
@@ -61,27 +64,39 @@ def process_import_task(self, batch_id: str, file_paths: list, source_type: str 
         batch = session.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
         project = session.query(Project).filter(Project.id == batch.project_id).first()
         adherence_answers = (project.adherence_answers or {}) if project else {}
+        company_cnpj = project.company_cnpj if project else None
 
         # Sempre Winthor por enquanto — quando existir um 2º ERP, despachar
         # por project.erp_type (ver comentário equivalente em pipeline.py).
         extra_fields = extra_pcprodut_field_names()
 
         if source_type == "csv":
-            result = run_pipeline_csv(file_paths[0], adherence_answers=adherence_answers,
-                                       extra_field_names=extra_fields)
+            product_result = run_pipeline_csv(file_paths[0], adherence_answers=adherence_answers,
+                                               extra_field_names=extra_fields)
+            finalize_multi_entity_result(session, batch_id, product_result=product_result)
+
         elif source_type == "sped":
-            result = run_pipeline_multi_source(sped_paths=file_paths,
-                                                adherence_answers=adherence_answers,
-                                                extra_field_names=extra_fields)
+            product_result = run_pipeline_multi_source(
+                sped_paths=file_paths, adherence_answers=adherence_answers,
+                extra_field_names=extra_fields,
+            )
+            participante_result = run_participante_pipeline(sped_paths=file_paths)
+            finalize_multi_entity_result(session, batch_id, product_result=product_result,
+                                          participante_result=participante_result)
+
         elif source_type == "xml":
-            result = run_pipeline_multi_source(
-                xml_paths=file_paths, company_cnpj=project.company_cnpj if project else None,
+            product_result = run_pipeline_multi_source(
+                xml_paths=file_paths, company_cnpj=company_cnpj,
                 adherence_answers=adherence_answers, extra_field_names=extra_fields,
             )
+            participante_result = run_participante_pipeline(xml_paths=file_paths,
+                                                              company_cnpj=company_cnpj)
+            finalize_multi_entity_result(session, batch_id, product_result=product_result,
+                                          participante_result=participante_result)
+
         else:
             raise ValueError(f"source_type desconhecido: {source_type!r}")
 
-        finalize_pipeline_result(session, batch_id, result)
     except Exception as exc:  # noqa: BLE001 — precisa capturar qualquer falha do pipeline
         mark_batch_failed(session, batch_id, str(exc))
         raise

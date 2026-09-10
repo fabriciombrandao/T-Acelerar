@@ -22,9 +22,9 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from app.canonical.models import CanonicalProduct, ExceptionRecord
-from app.db import ExceptionRow, ImportBatch, ProductRecord
-from app.pipeline import PipelineResult
+from app.canonical.models import CanonicalParticipante, CanonicalProduct, ExceptionRecord
+from app.db import ExceptionRow, ImportBatch, ParticipanteRecord, ProductRecord
+from app.pipeline import ParticipanteResult, PipelineResult
 
 BULK_INSERT_CHUNK_SIZE = 5000
 
@@ -54,24 +54,80 @@ def mark_batch_failed(db: Session, batch_id: str, error_message: str) -> None:
 
 
 def finalize_pipeline_result(db: Session, batch_id: str, result: PipelineResult) -> ImportBatch:
-    """Grava produtos + exceções em massa e marca o lote como DONE."""
-    product_rows = [_product_to_dict(p, batch_id) for p in result.products]
-    exception_rows = [_exception_to_dict(e, batch_id) for e in result.exceptions]
+    """Grava produtos + exceções em massa e marca o lote como DONE.
+    Mantido como estava (CSV — nunca tem participante) por retrocompatibilidade;
+    SPED/XML usam finalize_multi_entity_result, que também escreve participante."""
+    return finalize_multi_entity_result(db, batch_id, product_result=result)
 
-    for chunk_start in range(0, len(product_rows), BULK_INSERT_CHUNK_SIZE):
-        chunk = product_rows[chunk_start:chunk_start + BULK_INSERT_CHUNK_SIZE]
-        db.bulk_insert_mappings(ProductRecord, chunk)
 
-    for chunk_start in range(0, len(exception_rows), BULK_INSERT_CHUNK_SIZE):
-        chunk = exception_rows[chunk_start:chunk_start + BULK_INSERT_CHUNK_SIZE]
-        db.bulk_insert_mappings(ExceptionRow, chunk)
+def finalize_multi_entity_result(
+    db: Session, batch_id: str,
+    product_result: PipelineResult | None = None,
+    participante_result: ParticipanteResult | None = None,
+) -> ImportBatch:
+    """Grava produto e/ou participante do mesmo lote — um upload de SPED/XML
+    gera as duas entidades de uma vez, não é 'ou um ou outro'. Contagem por
+    entidade fica em colunas próprias de ImportBatch (product_count,
+    participante_count, cliente_count, fornecedor_count) pra alimentar o
+    breakdown na tela sem precisar reagregar do zero a cada request."""
+    total_records = 0
+    exception_count = 0
+    product_count = 0
+    participante_count = 0
+    cliente_count = 0
+    fornecedor_count = 0
+    report: dict = {}
+    readiness_scores = []
+
+    if product_result is not None:
+        product_rows = [_product_to_dict(p, batch_id) for p in product_result.products]
+        exception_rows = [_exception_to_dict(e, batch_id) for e in product_result.exceptions]
+
+        for chunk_start in range(0, len(product_rows), BULK_INSERT_CHUNK_SIZE):
+            chunk = product_rows[chunk_start:chunk_start + BULK_INSERT_CHUNK_SIZE]
+            db.bulk_insert_mappings(ProductRecord, chunk)
+        for chunk_start in range(0, len(exception_rows), BULK_INSERT_CHUNK_SIZE):
+            chunk = exception_rows[chunk_start:chunk_start + BULK_INSERT_CHUNK_SIZE]
+            db.bulk_insert_mappings(ExceptionRow, chunk)
+
+        product_count = len(product_result.products)
+        total_records += product_count
+        exception_count += len(product_result.exceptions)
+        report.update(product_result.report)  # espalha no nível raiz — mesmo formato de sempre, retrocompatível
+        readiness_scores.append(product_result.report.get("data_readiness_score", 0.0))
+
+    if participante_result is not None:
+        participante_rows = [_participante_to_dict(p, batch_id) for p in participante_result.participantes]
+        exception_rows = [_exception_to_dict(e, batch_id) for e in participante_result.exceptions]
+
+        for chunk_start in range(0, len(participante_rows), BULK_INSERT_CHUNK_SIZE):
+            chunk = participante_rows[chunk_start:chunk_start + BULK_INSERT_CHUNK_SIZE]
+            db.bulk_insert_mappings(ParticipanteRecord, chunk)
+        for chunk_start in range(0, len(exception_rows), BULK_INSERT_CHUNK_SIZE):
+            chunk = exception_rows[chunk_start:chunk_start + BULK_INSERT_CHUNK_SIZE]
+            db.bulk_insert_mappings(ExceptionRow, chunk)
+
+        participante_count = len(participante_result.participantes)
+        cliente_count = sum(1 for p in participante_result.participantes if "cliente" in p.tipo)
+        fornecedor_count = sum(1 for p in participante_result.participantes if "fornecedor" in p.tipo)
+        total_records += participante_count
+        exception_count += len(participante_result.exceptions)
+        report["participante"] = {
+            "total": participante_count, "clientes": cliente_count,
+            "fornecedores": fornecedor_count,
+            "exception_count": len(participante_result.exceptions),
+        }
 
     db.query(ImportBatch).filter(ImportBatch.id == batch_id).update({
         "status": "DONE",
-        "total_records": len(result.products),
-        "exception_count": len(result.exceptions),
-        "data_readiness_score": result.report.get("data_readiness_score", 0.0),
-        "report": result.report,
+        "total_records": total_records,
+        "product_count": product_count,
+        "participante_count": participante_count,
+        "cliente_count": cliente_count,
+        "fornecedor_count": fornecedor_count,
+        "exception_count": exception_count,
+        "data_readiness_score": (sum(readiness_scores) / len(readiness_scores)) if readiness_scores else 0.0,
+        "report": report,
     })
     db.commit()
 
@@ -110,4 +166,28 @@ def _exception_to_dict(e: ExceptionRecord, batch_id: str) -> dict:
         severity=e.severity,
         payload=e.payload,
         resolution_status="PENDING",
+    )
+
+
+def _participante_to_dict(p: CanonicalParticipante, batch_id: str) -> dict:
+    return dict(
+        batch_id=batch_id,
+        external_id=p.external_id,
+        nome=p.nome,
+        cnpj=p.cnpj,
+        cpf=p.cpf,
+        ie=p.ie,
+        cod_municipio=p.cod_municipio,
+        municipio=p.municipio,
+        uf=p.uf,
+        cep=p.cep,
+        fone=p.fone,
+        endereco=p.endereco,
+        numero=p.numero,
+        complemento=p.complemento,
+        bairro=p.bairro,
+        tipo=sorted(p.tipo),
+        status=p.status.value if hasattr(p.status, "value") else p.status,
+        provenance=[pr.model_dump(mode="json") for pr in p.provenance],
+        extra=p.extra,
     )
