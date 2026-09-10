@@ -46,6 +46,7 @@ class Project(Base):
     name = Column(String, nullable=False)
     owner_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
     erp_type = Column(String, nullable=False, default="winthor")  # escolhido na criação do projeto
+    company_cnpj = Column(String, nullable=True)  # CNPJ da empresa migrada — obrigatório pra usar SPED/XML
     segment = Column(String, nullable=True)
     subsegment = Column(String, nullable=True)
     adherence_answers = Column(JSON, default=dict)  # {module_id: bool}

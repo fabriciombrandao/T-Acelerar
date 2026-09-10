@@ -7,6 +7,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 SAMPLE_CSV = Path(__file__).parent.parent.parent / "sample_data" / "produtos_exemplo.csv"
+SPED_FIXTURE = Path(__file__).parent / "fixtures" / "sped_exemplo.txt"
+NFE_FIXTURE_DIR = Path(__file__).parent / "fixtures" / "nfe"
 
 
 @pytest.fixture()
@@ -54,8 +56,8 @@ def _upload_sample(client, project_id):
     with SAMPLE_CSV.open("rb") as f:
         return client.post(
             "/api/imports",
-            data={"project_id": project_id},
-            files={"file": ("produtos_exemplo.csv", f, "text/csv")},
+            data={"project_id": project_id, "source_type": "csv"},
+            files=[("files", ("produtos_exemplo.csv", f, "text/csv"))],
         )
 
 
@@ -83,7 +85,7 @@ def test_import_requires_valid_project(client):
         resp = client.post(
             "/api/imports",
             data={"project_id": "inexistente"},
-            files={"file": ("produtos_exemplo.csv", f, "text/csv")},
+            files=[("files", ("produtos_exemplo.csv", f, "text/csv"))],
         )
     assert resp.status_code == 404
 
@@ -96,10 +98,121 @@ def test_import_requires_adherence_configured_first(client):
     with SAMPLE_CSV.open("rb") as f:
         resp = client.post(
             "/api/imports", data={"project_id": project_id},
-            files={"file": ("produtos_exemplo.csv", f, "text/csv")},
+            files=[("files", ("produtos_exemplo.csv", f, "text/csv"))],
         )
     assert resp.status_code == 400
     assert "aderência" in resp.json()["detail"].lower()
+
+
+def test_import_source_type_sped_works_end_to_end(client):
+    project_id = _create_project(client)
+    _ensure_adherence(client, project_id)
+    with SPED_FIXTURE.open("rb") as f:
+        resp = client.post(
+            "/api/imports",
+            data={"project_id": project_id, "source_type": "sped"},
+            files=[("files", ("sped_exemplo.txt", f, "text/plain"))],
+        )
+    assert resp.status_code == 200
+    batch = resp.json()
+    assert batch["status"] == "DONE"
+    assert batch["total_records"] > 0
+
+
+def test_import_source_type_xml_requires_company_cnpj_on_project(client):
+    """Projeto sem company_cnpj configurado não pode importar XML — sem
+    isso não dá pra classificar entrada/saída de cada nota."""
+    project_id = _create_project(client)  # _create_project não seta company_cnpj
+    _ensure_adherence(client, project_id)
+    with (NFE_FIXTURE_DIR / "saida_cliente_a.xml").open("rb") as f:
+        resp = client.post(
+            "/api/imports",
+            data={"project_id": project_id, "source_type": "xml"},
+            files=[("files", ("saida_cliente_a.xml", f, "application/xml"))],
+        )
+    assert resp.status_code == 400
+    assert "cnpj" in resp.json()["detail"].lower()
+
+
+def test_import_source_type_xml_works_with_company_cnpj_configured(client):
+    resp = client.post("/api/projects", json={
+        "erp_type": "winthor", "name": "Projeto com CNPJ",
+        "company_cnpj": "11222333000181",
+    })
+    project_id = resp.json()["id"]
+    _ensure_adherence(client, project_id)
+
+    with (NFE_FIXTURE_DIR / "saida_cliente_a.xml").open("rb") as f:
+        resp = client.post(
+            "/api/imports",
+            data={"project_id": project_id, "source_type": "xml"},
+            files=[("files", ("saida_cliente_a.xml", f, "application/xml"))],
+        )
+    assert resp.status_code == 200
+    assert resp.json()["total_records"] == 1
+
+
+def test_import_source_type_csv_rejects_multiple_files(client):
+    project_id = _create_project(client)
+    _ensure_adherence(client, project_id)
+    with SAMPLE_CSV.open("rb") as f1, SAMPLE_CSV.open("rb") as f2:
+        resp = client.post(
+            "/api/imports",
+            data={"project_id": project_id, "source_type": "csv"},
+            files=[
+                ("files", ("a.csv", f1, "text/csv")),
+                ("files", ("b.csv", f2, "text/csv")),
+            ],
+        )
+    assert resp.status_code == 400
+
+
+def test_import_rejects_unknown_source_type(client):
+    project_id = _create_project(client)
+    _ensure_adherence(client, project_id)
+    with SAMPLE_CSV.open("rb") as f:
+        resp = client.post(
+            "/api/imports",
+            data={"project_id": project_id, "source_type": "excel_magico"},
+            files=[("files", ("a.csv", f, "text/csv"))],
+        )
+    assert resp.status_code == 400
+
+
+def test_create_project_validates_company_cnpj_checksum(client):
+    resp = client.post("/api/projects", json={
+        "erp_type": "winthor", "name": "X", "company_cnpj": "11222333000199",
+    })
+    assert resp.status_code == 400
+
+
+def test_create_project_accepts_valid_company_cnpj(client):
+    resp = client.post("/api/projects", json={
+        "erp_type": "winthor", "name": "X", "company_cnpj": "11222333000181",
+    })
+    assert resp.status_code == 200
+    assert resp.json()["company_cnpj"] == "11222333000181"
+
+
+def test_update_project_sets_company_cnpj(client):
+    project_id = _create_project(client)
+    resp = client.patch(f"/api/projects/{project_id}",
+                         json={"company_cnpj": "11222333000181"})
+    assert resp.status_code == 200
+    assert resp.json()["company_cnpj"] == "11222333000181"
+
+
+def test_update_project_validates_cnpj_checksum(client):
+    project_id = _create_project(client)
+    resp = client.patch(f"/api/projects/{project_id}",
+                         json={"company_cnpj": "11222333000199"})
+    assert resp.status_code == 400
+
+
+def test_update_project_requires_authorized_access(client):
+    resp = client.patch("/api/projects/inexistente",
+                         json={"company_cnpj": "11222333000181"})
+    assert resp.status_code == 404
 
 
 def test_import_creates_batch_with_exceptions(client):
@@ -151,7 +264,7 @@ def test_import_batch_marked_failed_on_pipeline_error(client, monkeypatch):
     with pytest.raises(Exception):
         client.post(
             "/api/imports", data={"project_id": project_id},
-            files={"file": ("bogus.csv", fake_csv, "text/csv")},
+            files=[("files", ("bogus.csv", fake_csv, "text/csv"))],
         )
 
     # O lote foi criado (PENDING) antes de disparar a task, então mesmo com

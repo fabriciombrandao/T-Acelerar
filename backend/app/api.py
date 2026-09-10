@@ -19,7 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Response, UploadFile
+from fastapi import (APIRouter, Depends, FastAPI, File, Form, HTTPException,
+                      Response, UploadFile)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.security import OAuth2PasswordRequestForm
@@ -36,6 +37,7 @@ from app.db import (ExceptionRow, ImportBatch, Project, ProductRecord, User,
 from app.erps import SUPPORTED_ERPS, is_supported_erp
 from app.repository import create_pending_batch
 from app.tasks import process_import_task
+from app.validation.br_documents import validate_cnpj
 from app.winthor.adherence import (load_modules_config, load_segments_config,
                                     preset_for_subsegment)
 from app.winthor.oracle_generator import generate_insert_script
@@ -148,6 +150,7 @@ class ProjectOut(BaseModel):
     name: str
     owner_id: Optional[str] = None
     erp_type: str
+    company_cnpj: Optional[str] = None
     segment: Optional[str] = None
     subsegment: Optional[str] = None
     adherence_answers: dict = {}
@@ -157,6 +160,7 @@ class ProjectOut(BaseModel):
 class ProjectIn(BaseModel):
     name: str
     erp_type: str  # obrigatório — ver app/erps.py pros valores suportados
+    company_cnpj: Optional[str] = None  # obrigatório só se for usar SPED/XML como fonte
     owner_email: Optional[str] = None  # só admin pode atribuir a outro consultor
 
 
@@ -314,6 +318,8 @@ def create_project(payload: ProjectIn, db: Session = Depends(get_db),
         raise HTTPException(
             400, f"ERP '{payload.erp_type}' não suportado. Opções: {list(SUPPORTED_ERPS)}.",
         )
+    if payload.company_cnpj and not validate_cnpj(payload.company_cnpj):
+        raise HTTPException(400, "company_cnpj com dígito verificador inválido.")
 
     owner_id = current_user.id
 
@@ -330,7 +336,8 @@ def create_project(payload: ProjectIn, db: Session = Depends(get_db),
         owner_id = target.id
 
     project = Project(id=str(uuid.uuid4()), name=payload.name,
-                       erp_type=payload.erp_type, owner_id=owner_id)
+                       erp_type=payload.erp_type, company_cnpj=payload.company_cnpj,
+                       owner_id=owner_id)
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -344,6 +351,24 @@ def list_projects(db: Session = Depends(get_db), current_user: User = Depends(ge
     if ids is not None:
         query = query.filter(Project.owner_id.in_(ids))
     return query.order_by(Project.created_at.desc()).all()
+
+
+class ProjectUpdateIn(BaseModel):
+    company_cnpj: str
+
+
+@router.patch("/projects/{project_id}", response_model=ProjectOut)
+def update_project(project_id: str, payload: ProjectUpdateIn, db: Session = Depends(get_db),
+                    current_user: User = Depends(get_current_user)):
+    """Só company_cnpj por enquanto — é o único campo que faz sentido
+    editar depois de criado (necessário pra desbloquear import via XML)."""
+    project = _get_authorized_project(db, project_id, current_user)
+    if not validate_cnpj(payload.company_cnpj):
+        raise HTTPException(400, "company_cnpj com dígito verificador inválido.")
+    project.company_cnpj = payload.company_cnpj
+    db.commit()
+    db.refresh(project)
+    return project
 
 
 @router.get("/projects/{project_id}/imports", response_model=list[BatchSummary])
@@ -405,10 +430,17 @@ def get_project_adherence(project_id: str, db: Session = Depends(get_db),
 # ---------- Imports / Pipeline ----------
 
 @router.post("/imports", response_model=BatchSummary)
-async def create_import(project_id: str = Form(...), file: UploadFile = None,
+async def create_import(project_id: str = Form(...), source_type: str = Form("csv"),
+                         files: list[UploadFile] = File(default=None),
                          db: Session = Depends(get_db),
                          current_user: User = Depends(get_current_user)):
-    """Sobe um CSV de produtos dentro de um projeto e dispara o processamento.
+    """Sobe arquivo(s) de produto dentro de um projeto e dispara o processamento.
+
+    source_type:
+      'csv'  — exatamente 1 arquivo, comportamento original.
+      'sped' — 1+ arquivos SPED Fiscal/Contribuições (mesmo período/empresa).
+      'xml'  — 1+ XMLs de NF-e — projeto precisa ter company_cnpj configurado
+               (necessário pra classificar entrada/saída de cada nota).
 
     Responde imediatamente com o lote em status PENDING (ou já DONE, se
     estiver rodando sem Redis configurado — modo síncrono de dev/teste).
@@ -421,16 +453,31 @@ async def create_import(project_id: str = Form(...), file: UploadFile = None,
             "Configure o perfil de aderência do projeto (segmento/subsegmento) "
             "antes de importar arquivos.",
         )
-    if not file or not file.filename.lower().endswith(".csv"):
-        raise HTTPException(400, "Envie um arquivo .csv.")
+    if source_type not in ("csv", "sped", "xml"):
+        raise HTTPException(400, "source_type deve ser 'csv', 'sped' ou 'xml'.")
+    if not files:
+        raise HTTPException(400, "Envie pelo menos um arquivo.")
+    if source_type == "csv" and len(files) > 1:
+        raise HTTPException(400, "source_type='csv' aceita só um arquivo por vez.")
+    if source_type == "xml" and not project.company_cnpj:
+        raise HTTPException(
+            400,
+            "Configure o CNPJ da empresa no projeto antes de importar XML de NF-e "
+            "(precisa pra saber quem é a empresa em cada nota).",
+        )
 
-    batch = create_pending_batch(db, project_id=project_id, source_file=file.filename)
+    ext = {"csv": ".csv", "sped": ".txt", "xml": ".xml"}[source_type]
+    label = files[0].filename if len(files) == 1 else f"{len(files)} arquivos ({source_type})"
+    batch = create_pending_batch(db, project_id=project_id, source_file=label)
 
-    persistent_path = UPLOADS_DIR / f"{batch.id}.csv"
-    with persistent_path.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+    saved_paths = []
+    for i, file in enumerate(files):
+        persistent_path = UPLOADS_DIR / f"{batch.id}_{i}{ext}"
+        with persistent_path.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+        saved_paths.append(str(persistent_path))
 
-    process_import_task.delay(batch.id, str(persistent_path))
+    process_import_task.delay(batch.id, saved_paths, source_type)
 
     db.refresh(batch)  # em modo síncrono (sem Redis), a task já rodou e commitou
     return batch

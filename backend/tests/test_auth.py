@@ -54,7 +54,7 @@ def _upload_sample(client, headers, project_id):
     with SAMPLE_CSV.open("rb") as f:
         return client.post(
             "/api/imports", headers=headers, data={"project_id": project_id},
-            files={"file": ("produtos_exemplo.csv", f, "text/csv")},
+            files=[("files", ("produtos_exemplo.csv", f, "text/csv"))],
         )
 
 
