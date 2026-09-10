@@ -148,6 +148,7 @@
     display: inline-flex; align-items: center; gap: 6px;
   }
   button.btn-ghost:hover { border-color: var(--cor-marca); color: var(--cor-marca-hover); }
+  button.btn-ghost.active { background: var(--cor-marca-soft); border-color: var(--cor-marca); color: var(--cor-marca-hover); font-weight: 600; }
 
   button.btn-danger-ghost { color: var(--cor-erro); border-color: var(--border-color); }
   button.btn-danger-ghost:hover { border-color: var(--cor-erro); background: var(--cor-erro-soft); }
@@ -495,7 +496,7 @@
               <div>
                 <div class="filename" x-text="b.source_file"></div>
                 <div class="meta">
-                  <span class="status-pill" x-bind:class="'status-' + b.status" x-text="b.status"></span>
+                  <span class="status-pill" x-bind:class="'status-' + b.status" x-text="LABELS.statusLabel(b.status)"></span>
                   &nbsp;<span x-text="b.total_records"></span> registros
                   <template x-if="b.participante_count > 0">
                     <span>(<span x-text="b.product_count"></span> produto, <span x-text="b.cliente_count"></span> cliente, <span x-text="b.fornecedor_count"></span> fornecedor)</span>
@@ -530,28 +531,61 @@
               </div>
 
               <div x-show="exceptions.length === 0" class="note-text">Nenhuma excecao nesta pagina.</div>
-              <template x-for="ex in exceptions" :key="ex.id">
-                <div class="exception-row" x-bind:class="['sev-' + ex.severity, ex.resolution_status !== 'PENDING' ? 'resolved' : '']">
-                  <div class="sev-tag" x-text="ex.severity"></div>
-                  <div class="exception-body">
-                    <span class="reason" x-text="ex.entity + ': ' + ex.reason_code"></span>
-                    <span class="desc" x-text="ex.description"></span>
-                    <span class="status-line" x-text="ex.record_id + ' - ' + ex.resolution_status + (ex.resolved_by ? ' - ' + ex.resolved_by : '')"></span>
+
+              <div style="display:flex; gap:6px; margin-bottom:10px;" x-show="exceptions.length > 0">
+                <button class="btn-ghost" :class="exceptionsViewMode === 'grouped' ? 'active' : ''"
+                        x-on:click="exceptionsViewMode = 'grouped'">Por motivo</button>
+                <button class="btn-ghost" :class="exceptionsViewMode === 'individual' ? 'active' : ''"
+                        x-on:click="exceptionsViewMode = 'individual'">Item a item</button>
+              </div>
+
+              <template x-if="exceptionsViewMode === 'grouped'">
+                <div>
+                  <div x-show="exceptionsSummary.length === 0 && exceptions.length > 0" class="note-text">
+                    Tudo resolvido — nenhum motivo pendente.
                   </div>
-                  <div class="exception-actions" x-show="ex.resolution_status === 'PENDING'">
-                    <button class="btn-ghost" x-on:click="resolveException(ex.id, 'APPROVED')">Aprovar</button>
-                    <button class="btn-ghost btn-danger-ghost" x-on:click="resolveException(ex.id, 'REJECTED')">Rejeitar</button>
-                  </div>
+                  <template x-for="group in exceptionsSummary" :key="group.entity + group.reason_code">
+                    <div class="exception-row" x-bind:class="'sev-' + group.severity">
+                      <div class="sev-tag" x-text="group.severity"></div>
+                      <div class="exception-body">
+                        <span class="reason" x-text="LABELS.entityLabel(group.entity) + ': ' + LABELS.reasonLabel(group.reason_code)"></span>
+                        <span class="desc" x-text="group.count + (group.count === 1 ? ' registro' : ' registros') + ' com esse motivo'"></span>
+                      </div>
+                      <div class="exception-actions">
+                        <button class="btn-ghost" x-on:click="bulkResolve(group, 'APPROVED')">Aprovar todas</button>
+                        <button class="btn-ghost btn-danger-ghost" x-on:click="bulkResolve(group, 'REJECTED')">Rejeitar todas</button>
+                      </div>
+                    </div>
+                  </template>
                 </div>
               </template>
 
-              <div class="pagination-bar" x-show="exceptionsTotal > exceptionsLimit">
-                <span x-text="'Mostrando ' + (exceptionsOffset + 1) + '-' + Math.min(exceptionsOffset + exceptionsLimit, exceptionsTotal) + ' de ' + exceptionsTotal"></span>
-                <div style="display:flex; gap:6px;">
-                  <button class="btn-ghost" x-on:click="changeExceptionsPage(-1)" :disabled="exceptionsOffset === 0">Anterior</button>
-                  <button class="btn-ghost" x-on:click="changeExceptionsPage(1)" :disabled="exceptionsOffset + exceptionsLimit >= exceptionsTotal">Proxima</button>
+              <template x-if="exceptionsViewMode === 'individual'">
+                <div>
+                  <template x-for="ex in exceptions" :key="ex.id">
+                    <div class="exception-row" x-bind:class="['sev-' + ex.severity, ex.resolution_status !== 'PENDING' ? 'resolved' : '']">
+                      <div class="sev-tag" x-text="ex.severity"></div>
+                      <div class="exception-body">
+                        <span class="reason" x-text="LABELS.entityLabel(ex.entity) + ': ' + LABELS.reasonLabel(ex.reason_code)"></span>
+                        <span class="desc" x-text="ex.description"></span>
+                        <span class="status-line" x-text="ex.record_id + ' - ' + LABELS.statusLabel(ex.resolution_status) + (ex.resolved_by ? ' - ' + ex.resolved_by : '')"></span>
+                      </div>
+                      <div class="exception-actions" x-show="ex.resolution_status === 'PENDING'">
+                        <button class="btn-ghost" x-on:click="resolveException(ex.id, 'APPROVED')">Aprovar</button>
+                        <button class="btn-ghost btn-danger-ghost" x-on:click="resolveException(ex.id, 'REJECTED')">Rejeitar</button>
+                      </div>
+                    </div>
+                  </template>
+
+                  <div class="pagination-bar" x-show="exceptionsTotal > exceptionsLimit">
+                    <span x-text="'Mostrando ' + (exceptionsOffset + 1) + '-' + Math.min(exceptionsOffset + exceptionsLimit, exceptionsTotal) + ' de ' + exceptionsTotal"></span>
+                    <div style="display:flex; gap:6px;">
+                      <button class="btn-ghost" x-on:click="changeExceptionsPage(-1)" :disabled="exceptionsOffset === 0">Anterior</button>
+                      <button class="btn-ghost" x-on:click="changeExceptionsPage(1)" :disabled="exceptionsOffset + exceptionsLimit >= exceptionsTotal">Proxima</button>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </template>
             </section>
 
             <section class="panel">
@@ -644,6 +678,36 @@
 </div>
 
 <script>
+// Rótulos em português pra tudo que o backend devolve em código interno
+// (status, entidade, motivo de exceção) — o backend usa esses códigos como
+// identificador estável (não muda por tradução), a tela é que traduz.
+var LABELS = {
+  status: {
+    PENDING: 'Pendente', PROCESSING: 'Processando', DONE: 'Concluído', FAILED: 'Falhou',
+  },
+  entity: {
+    Product: 'Produto', Participante: 'Participante',
+  },
+  reason: {
+    CAMPO_ADERENCIA_AUSENTE: 'Campo obrigatório ausente (aderência)',
+    CAMPO_OBRIGATORIO_VAZIO: 'Campo obrigatório vazio',
+    CAMPO_SEM_DEFAULT_CONFIGURADO: 'Campo sem valor padrão configurado',
+    CNPJ_INVALIDO: 'CNPJ inválido',
+    CPF_INVALIDO: 'CPF inválido',
+    DOCUMENTO_AUSENTE: 'CNPJ/CPF ausente',
+    EAN_DUPLICADO: 'Código de barras duplicado',
+    EAN_INVALIDO: 'Código de barras inválido',
+    NCM_AUSENTE: 'NCM ausente',
+    NCM_INVALIDO: 'NCM inválido',
+    PROVAVEL_DUPLICADO: 'Provável produto duplicado',
+    SEM_CLASSIFICACAO: 'Sem papel definido (cliente/fornecedor)',
+    SKU_DUPLICADO: 'Código do produto duplicado',
+  },
+  reasonLabel: function(code) { return this.reason[code] || code; },
+  statusLabel: function(code) { return this.status[code] || code; },
+  entityLabel: function(code) { return this.entity[code] || code; },
+};
+
 var API = {
   // Backend agora é container separado do frontend (nginx roteia /api/*
   // pro backend e o resto pro frontend — padrão do time, ver
@@ -731,6 +795,8 @@ function app() {
     exceptionsTotal: 0,
     exceptionsOffset: 0,
     exceptionsLimit: 50,
+    exceptionsSummary: [],
+    exceptionsViewMode: 'grouped',
 
     teamUsers: [],
     newUserForm: { name: '', email: '', password: '', role: 'analista', manager_email: '' },
@@ -1030,7 +1096,8 @@ function app() {
       var self = this;
       this.currentBatch = batch;
       this.exceptionsOffset = 0;
-      return Promise.all([this.loadReport(), this.loadExceptions(), this.loadReadiness()]).then(function() {
+      return Promise.all([this.loadReport(), this.loadExceptions(), this.loadExceptionsSummary(),
+                           this.loadReadiness()]).then(function() {
         self.$nextTick(function() { refreshIcons(); });
       });
     },
@@ -1072,6 +1139,32 @@ function app() {
       return this.loadExceptions();
     },
 
+    loadExceptionsSummary: function() {
+      var self = this;
+      var params = new URLSearchParams({ batch_id: this.currentBatch.id });
+      return this.call(function() { return API.get('/exceptions/summary?' + params, self.token); })
+        .then(function(resp) {
+          if (resp) return resp.json().then(function(data) { self.exceptionsSummary = data; });
+        });
+    },
+
+    bulkResolve: function(group, decision) {
+      var self = this;
+      return this.call(function() {
+        return API.postJson('/exceptions/bulk-resolve', {
+          batch_id: self.currentBatch.id, entity: group.entity,
+          reason_code: group.reason_code, decision: decision,
+        }, self.token);
+      }).then(function(resp) {
+        if (!resp) return;
+        return resp.json().then(function(data) {
+          self.toast((decision === 'APPROVED' ? 'Aprovadas ' : 'Rejeitadas ') + data.updated + ' exceções.');
+          return Promise.all([self.loadExceptionsSummary(), self.loadExceptions(),
+                               self.loadReadiness(), self.loadReport(), self.loadBatches()]);
+        });
+      });
+    },
+
     resolveException: function(id, decision) {
       var self = this;
       return this.call(function() {
@@ -1079,7 +1172,8 @@ function app() {
       }).then(function(resp) {
         if (!resp) return;
         self.toast(decision === 'APPROVED' ? 'Excecao aprovada.' : 'Excecao rejeitada.');
-        return Promise.all([self.loadExceptions(), self.loadReadiness(), self.loadReport(), self.loadBatches()]);
+        return Promise.all([self.loadExceptions(), self.loadExceptionsSummary(),
+                             self.loadReadiness(), self.loadReport(), self.loadBatches()]);
       });
     },
 

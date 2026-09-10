@@ -410,6 +410,84 @@ def test_list_exceptions_defaults_to_all_pending(client):
     assert all(e["resolution_status"] == "PENDING" for e in exceptions)
 
 
+def test_exceptions_summary_groups_by_reason_code(client):
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+
+    summary = client.get("/api/exceptions/summary", params={"batch_id": batch["id"]}).json()
+    assert len(summary) > 0
+    for group in summary:
+        assert set(group.keys()) == {"entity", "reason_code", "severity", "count"}
+        assert group["count"] > 0
+
+
+def test_exceptions_summary_only_counts_pending(client):
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+
+    exceptions = client.get("/api/exceptions", params={"batch_id": batch["id"]}).json()
+    target_reason = exceptions[0]["reason_code"]
+    target_entity = exceptions[0]["entity"]
+
+    client.post(f"/api/exceptions/{exceptions[0]['id']}/resolve", json={"decision": "APPROVED"})
+
+    summary = client.get("/api/exceptions/summary", params={"batch_id": batch["id"]}).json()
+    matching = [g for g in summary if g["reason_code"] == target_reason and g["entity"] == target_entity]
+    remaining = sum(1 for e in exceptions if e["reason_code"] == target_reason
+                     and e["entity"] == target_entity) - 1
+    if remaining > 0:
+        assert matching[0]["count"] == remaining
+    else:
+        assert matching == []  # grupo some da lista quando zera
+
+
+def test_bulk_resolve_approves_all_matching_pending(client):
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+
+    exceptions = client.get("/api/exceptions", params={"batch_id": batch["id"]}).json()
+    target_reason = exceptions[0]["reason_code"]
+    target_entity = exceptions[0]["entity"]
+    expected_count = sum(1 for e in exceptions if e["reason_code"] == target_reason
+                          and e["entity"] == target_entity)
+
+    resp = client.post("/api/exceptions/bulk-resolve", json={
+        "batch_id": batch["id"], "entity": target_entity, "reason_code": target_reason,
+        "decision": "APPROVED",
+    })
+    assert resp.status_code == 200
+    assert resp.json()["updated"] == expected_count
+
+    summary = client.get("/api/exceptions/summary", params={"batch_id": batch["id"]}).json()
+    assert not any(g["reason_code"] == target_reason and g["entity"] == target_entity for g in summary)
+
+
+def test_bulk_resolve_does_not_touch_already_resolved(client):
+    """Segunda chamada no mesmo (entity, reason_code) não reprocessa nada
+    (já estão todos resolvidos) — updated deve vir 0, não erro."""
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+    exceptions = client.get("/api/exceptions", params={"batch_id": batch["id"]}).json()
+    target_reason = exceptions[0]["reason_code"]
+    target_entity = exceptions[0]["entity"]
+
+    payload = {"batch_id": batch["id"], "entity": target_entity,
+               "reason_code": target_reason, "decision": "APPROVED"}
+    client.post("/api/exceptions/bulk-resolve", json=payload)
+    resp = client.post("/api/exceptions/bulk-resolve", json=payload)
+    assert resp.json()["updated"] == 0
+
+
+def test_bulk_resolve_rejects_invalid_decision(client):
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+    resp = client.post("/api/exceptions/bulk-resolve", json={
+        "batch_id": batch["id"], "entity": "Product", "reason_code": "QUALQUER",
+        "decision": "TALVEZ",
+    })
+    assert resp.status_code == 400
+
+
 def test_resolve_exception_updates_status(client):
     project_id = _create_project(client)
     _upload_sample(client, project_id)

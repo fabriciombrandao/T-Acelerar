@@ -212,6 +212,69 @@ class ResolveExceptionIn(BaseModel):
     note: Optional[str] = None
 
 
+@router.get("/exceptions/summary")
+def exceptions_summary(batch_id: str, db: Session = Depends(get_db),
+                        current_user: User = Depends(get_current_user)):
+    """Agrupa exceções PENDING por (entity, reason_code, severity) — é isso
+    que a tela usa pra oferecer 'aprovar todas' em vez de forçar decisão
+    uma por uma quando o mesmo motivo se repete centenas de vezes (caso
+    real: 1789 exceções, quase todas 'campo comercial sem fonte fiscal'
+    repetido por produto — não dá pra tratar item a item)."""
+    _get_authorized_batch(db, batch_id, current_user)
+    from sqlalchemy import func
+
+    rows = (
+        db.query(ExceptionRow.entity, ExceptionRow.reason_code, ExceptionRow.severity,
+                 func.count(ExceptionRow.id))
+        .filter(ExceptionRow.batch_id == batch_id, ExceptionRow.resolution_status == "PENDING")
+        .group_by(ExceptionRow.entity, ExceptionRow.reason_code, ExceptionRow.severity)
+        .order_by(func.count(ExceptionRow.id).desc())
+        .all()
+    )
+    return [
+        {"entity": entity, "reason_code": reason_code, "severity": severity, "count": count}
+        for entity, reason_code, severity, count in rows
+    ]
+
+
+class BulkResolveIn(BaseModel):
+    batch_id: str
+    entity: str
+    reason_code: str
+    decision: str  # "APPROVED" | "REJECTED"
+    note: Optional[str] = None
+
+
+@router.post("/exceptions/bulk-resolve")
+def bulk_resolve_exceptions(payload: BulkResolveIn, db: Session = Depends(get_db),
+                             current_user: User = Depends(get_current_user)):
+    """Resolve de uma vez TODA exceção PENDING do lote que bate com
+    (entity, reason_code) — mesmo motivo, mesma decisão pra todo mundo.
+    Não existe 'aprovar em lote com decisões diferentes por item' — se
+    precisar de decisão caso a caso, usa o resolve individual."""
+    if payload.decision not in ("APPROVED", "REJECTED"):
+        raise HTTPException(400, "decision deve ser APPROVED ou REJECTED.")
+    _get_authorized_batch(db, payload.batch_id, current_user)
+
+    updated = (
+        db.query(ExceptionRow)
+        .filter(
+            ExceptionRow.batch_id == payload.batch_id,
+            ExceptionRow.entity == payload.entity,
+            ExceptionRow.reason_code == payload.reason_code,
+            ExceptionRow.resolution_status == "PENDING",
+        )
+        .update({
+            "resolution_status": payload.decision,
+            "resolved_by": current_user.email,
+            "resolution_note": payload.note,
+            "resolved_at": datetime.now(timezone.utc),
+        })
+    )
+    db.commit()
+    return {"updated": updated}
+
+
 # ---------- Autenticação ----------
 
 @router.post("/auth/login", response_model=TokenOut)
