@@ -95,6 +95,8 @@
   }
   .project-item:hover { background: var(--bg-principal); }
   .project-item.active { background: var(--cor-marca-soft); color: var(--cor-marca-hover); font-weight: 600; }
+  .project-delete-btn { padding: 3px; opacity: 0; transition: opacity 0.15s ease; }
+  .project-item:hover .project-delete-btn { opacity: 1; }
 
 
   .sidebar-footer {
@@ -299,13 +301,23 @@
           <template x-for="p in projects" :key="p.id">
             <li class="project-item" x-bind:class="{active: currentProject && currentProject.id === p.id}"
                 x-on:click="isNewProjectFlow = false; selectProject(p)">
-              <i data-lucide="building-2" style="width:13px;height:13px;"></i>
+              <i data-lucide="building-2" style="width:13px;height:13px; flex-shrink:0;"></i>
               <span x-text="p.name" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
-              <button class="icon-btn" style="flex-shrink:0;"
-                      x-on:click.stop="confirmDeleteProject(p)"
-                      :title="deletingProjectId === p.id ? 'Clique de novo pra confirmar' : 'Excluir projeto'">
-                <i data-lucide="trash-2" style="width:13px;height:13px;" :style="deletingProjectId === p.id ? 'color:#dc2626' : ''"></i>
-              </button>
+
+              <template x-if="deletingProjectId !== p.id">
+                <button class="icon-btn project-delete-btn" title="Excluir projeto"
+                        x-on:click.stop="deletingProjectId = p.id">
+                  <i data-lucide="trash-2" style="width:12px;height:12px;"></i>
+                </button>
+              </template>
+              <template x-if="deletingProjectId === p.id">
+                <span style="display:flex; gap:4px; flex-shrink:0;" x-on:click.stop>
+                  <button class="btn-ghost btn-danger-ghost" style="font-size:11px; padding:3px 6px;"
+                          x-on:click="deleteProject(p)">Excluir</button>
+                  <button class="btn-ghost" style="font-size:11px; padding:3px 6px;"
+                          x-on:click="deletingProjectId = null">Cancelar</button>
+                </span>
+              </template>
             </li>
           </template>
         </ul>
@@ -865,17 +877,8 @@ function app() {
       });
     },
 
-    confirmDeleteProject: function(project) {
+    deleteProject: function(project) {
       var self = this;
-      if (this.deletingProjectId !== project.id) {
-        // Primeiro clique: só arma a confirmação, não apaga ainda.
-        this.deletingProjectId = project.id;
-        setTimeout(function() {
-          if (self.deletingProjectId === project.id) self.deletingProjectId = null;
-        }, 4000);
-        return;
-      }
-      // Segundo clique dentro da janela de 4s: apaga de verdade.
       this.deletingProjectId = null;
       return this.call(function() { return API.delete('/projects/' + project.id, self.token); })
         .then(function(resp) {
