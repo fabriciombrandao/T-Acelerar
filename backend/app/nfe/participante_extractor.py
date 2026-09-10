@@ -49,6 +49,8 @@ def extract_participantes_from_nfe(
                 external_id=key, nome=other.get("nome") or "",
                 cnpj=cnpj, cpf=cpf, ie=other.get("ie"),
                 cod_municipio=other.get("cod_municipio"),
+                municipio=other.get("municipio"), uf=other.get("uf"),
+                cep=other.get("cep"), fone=other.get("fone"),
                 endereco=other.get("endereco"), numero=other.get("numero"),
                 bairro=other.get("bairro"), status=RecordStatus.PARSED,
                 source_file=doc["source_file"],

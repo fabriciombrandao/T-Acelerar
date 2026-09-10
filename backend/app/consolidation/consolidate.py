@@ -46,8 +46,8 @@ def consolidate_participantes(
             existing = by_key[key]
             existing.tipo |= p.tipo
             existing.provenance.extend(p.provenance)
-            for field in ("nome", "ie", "cod_municipio", "endereco",
-                          "numero", "complemento", "bairro"):
+            for field in ("nome", "ie", "cod_municipio", "municipio", "uf", "cep",
+                          "fone", "endereco", "numero", "complemento", "bairro"):
                 if not getattr(existing, field) and getattr(p, field):
                     setattr(existing, field, getattr(p, field))
 

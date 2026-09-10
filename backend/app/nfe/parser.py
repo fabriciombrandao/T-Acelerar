@@ -50,6 +50,10 @@ def parse_nfe_xml(path: str | Path) -> dict:
         "numero": _text(emit_node, "nfe:enderEmit/nfe:nro"),
         "bairro": _text(emit_node, "nfe:enderEmit/nfe:xBairro"),
         "cod_municipio": _text(emit_node, "nfe:enderEmit/nfe:cMun"),
+        "municipio": _text(emit_node, "nfe:enderEmit/nfe:xMun"),
+        "uf": _text(emit_node, "nfe:enderEmit/nfe:UF"),
+        "cep": _text(emit_node, "nfe:enderEmit/nfe:CEP"),
+        "fone": _text(emit_node, "nfe:enderEmit/nfe:fone"),
         "ie": _text(emit_node, "nfe:IE"),
     } if emit_node is not None else {}
 
@@ -61,6 +65,10 @@ def parse_nfe_xml(path: str | Path) -> dict:
         "numero": _text(dest_node, "nfe:enderDest/nfe:nro"),
         "bairro": _text(dest_node, "nfe:enderDest/nfe:xBairro"),
         "cod_municipio": _text(dest_node, "nfe:enderDest/nfe:cMun"),
+        "municipio": _text(dest_node, "nfe:enderDest/nfe:xMun"),
+        "uf": _text(dest_node, "nfe:enderDest/nfe:UF"),
+        "cep": _text(dest_node, "nfe:enderDest/nfe:CEP"),
+        "fone": _text(dest_node, "nfe:enderDest/nfe:fone"),
         "ie": _text(dest_node, "nfe:IE"),
     } if dest_node is not None else {}
 

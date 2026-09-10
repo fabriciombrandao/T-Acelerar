@@ -103,6 +103,10 @@ class CanonicalParticipante(BaseModel):
     cpf: Optional[str] = None
     ie: Optional[str] = None
     cod_municipio: Optional[str] = None
+    municipio: Optional[str] = None
+    uf: Optional[str] = None
+    cep: Optional[str] = None
+    fone: Optional[str] = None
     endereco: Optional[str] = None
     numero: Optional[str] = None
     complemento: Optional[str] = None
