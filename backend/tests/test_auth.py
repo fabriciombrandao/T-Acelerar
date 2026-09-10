@@ -277,6 +277,24 @@ def test_coordenador_cannot_resolve_exception_of_other_teams_project(raw_client)
     assert resp.status_code == 403
 
 
+def test_coordenador_cannot_delete_project_of_other_team(raw_client):
+    headers = _setup_two_teams(raw_client)
+    project = raw_client.post("/api/projects", headers=headers["analista_a1"],
+                               json={"erp_type": "winthor", "name": "P"}).json()
+
+    resp = raw_client.delete(f"/api/projects/{project['id']}", headers=headers["coord_b"])
+    assert resp.status_code == 403
+
+
+def test_diretor_can_delete_any_project(raw_client):
+    headers = _setup_two_teams(raw_client)
+    project = raw_client.post("/api/projects", headers=headers["analista_a1"],
+                               json={"erp_type": "winthor", "name": "P"}).json()
+
+    resp = raw_client.delete(f"/api/projects/{project['id']}", headers=headers["diretor"])
+    assert resp.status_code == 204
+
+
 # ---------- Atribuição de projeto ----------
 
 def test_coordenador_can_assign_project_to_team_member(raw_client):

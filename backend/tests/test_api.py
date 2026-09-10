@@ -303,6 +303,35 @@ def test_update_project_requires_authorized_access(client):
     assert resp.status_code == 404
 
 
+def test_delete_project_removes_it_from_listing(client):
+    project_id = _create_project(client)
+    resp = client.delete(f"/api/projects/{project_id}")
+    assert resp.status_code == 204
+
+    listing = client.get("/api/projects").json()
+    assert project_id not in [p["id"] for p in listing]
+
+
+def test_delete_project_cascades_batches_products_and_exceptions(client):
+    """Deleta o projeto -> lote, produtos e exceções somem junto (não é
+    soft delete, e não pode sobrar linha órfã)."""
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+    assert batch["exception_count"] > 0  # confirma que tinha algo pra cascatear
+
+    resp = client.delete(f"/api/projects/{project_id}")
+    assert resp.status_code == 204
+
+    assert client.get(f"/api/imports/{batch['id']}").status_code == 404
+    assert client.get(f"/api/imports/{batch['id']}/products").status_code == 404
+    assert client.get("/api/exceptions", params={"batch_id": batch["id"]}).status_code == 404
+
+
+def test_delete_project_requires_valid_project(client):
+    resp = client.delete("/api/projects/inexistente")
+    assert resp.status_code == 404
+
+
 def test_import_creates_batch_with_exceptions(client):
     project_id = _create_project(client)
     resp = _upload_sample(client, project_id)

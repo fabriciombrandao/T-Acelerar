@@ -375,6 +375,19 @@ def update_project(project_id: str, payload: ProjectUpdateIn, db: Session = Depe
     return project
 
 
+@router.delete("/projects/{project_id}", status_code=204)
+def delete_project(project_id: str, db: Session = Depends(get_db),
+                    current_user: User = Depends(get_current_user)):
+    """Apaga o projeto e tudo dependurado nele (lotes, produtos,
+    participantes, exceções) — cascade via relationship, não é soft
+    delete. Mesma regra de visibilidade de quem pode ver o projeto
+    decide quem pode apagar (não restringi mais que isso por enquanto)."""
+    project = _get_authorized_project(db, project_id, current_user)
+    db.delete(project)
+    db.commit()
+    return Response(status_code=204)
+
+
 @router.get("/projects/{project_id}/imports", response_model=list[BatchSummary])
 def list_project_imports(project_id: str, db: Session = Depends(get_db),
                           current_user: User = Depends(get_current_user)):
