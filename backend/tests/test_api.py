@@ -548,6 +548,21 @@ def test_update_product_field_requires_existing_product(client):
     assert resp.status_code == 404
 
 
+def test_suggest_ncm_endpoint_returns_503_without_api_key(client, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+    resp = client.post(f"/api/imports/{batch['id']}/products/5/suggest-ncm")
+    assert resp.status_code == 503
+
+
+def test_suggest_ncm_endpoint_requires_existing_product(client):
+    project_id = _create_project(client)
+    batch = _upload_sample(client, project_id).json()
+    resp = client.post(f"/api/imports/{batch['id']}/products/9999/suggest-ncm")
+    assert resp.status_code == 404
+
+
 def test_resolve_exception_updates_status(client):
     project_id = _create_project(client)
     _upload_sample(client, project_id)

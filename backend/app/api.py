@@ -618,6 +618,32 @@ class ProductFieldUpdateIn(BaseModel):
     value: Optional[str] = None
 
 
+@router.post("/imports/{batch_id}/products/{external_id}/suggest-ncm")
+async def suggest_ncm_endpoint(batch_id: str, external_id: str, db: Session = Depends(get_db),
+                                current_user: User = Depends(get_current_user)):
+    """Sugestão de IA pro campo NCM — nunca aplica sozinha, só devolve
+    pra tela pré-preencher o campo de correção manual (mesmo endpoint de
+    sempre, PATCH .../products/{id})."""
+    _get_authorized_batch(db, batch_id, current_user)
+    product = (
+        db.query(ProductRecord)
+        .filter(ProductRecord.batch_id == batch_id, ProductRecord.external_id == external_id)
+        .first()
+    )
+    if not product:
+        raise HTTPException(404, "Produto não encontrado neste lote.")
+
+    from app.ai.ncm_suggester import suggest_ncm
+    suggestion = await suggest_ncm(product.description or "")
+    if suggestion is None:
+        raise HTTPException(
+            503,
+            "Sugestão de NCM indisponível no momento (chave de IA não configurada, "
+            "ou serviço fora do ar). Corrija manualmente.",
+        )
+    return suggestion
+
+
 @router.patch("/imports/{batch_id}/products/{external_id}")
 def update_product_field(batch_id: str, external_id: str, payload: ProductFieldUpdateIn,
                           db: Session = Depends(get_db),

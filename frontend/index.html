@@ -570,11 +570,21 @@
                         <span class="desc" x-text="ex.description"></span>
                         <span class="status-line" x-text="ex.record_id + ' - ' + LABELS.statusLabel(ex.resolution_status) + (ex.resolved_by ? ' - ' + ex.resolved_by : '')"></span>
                         <template x-if="ex.resolution_status === 'PENDING' && CORRECTABLE_FIELDS[ex.reason_code]">
-                          <div style="display:flex; gap:6px; margin-top:6px;">
-                            <input type="text" x-model="correctionValue[ex.id]" placeholder="Valor correto"
-                                   style="font-size:12px; padding:4px 8px;">
-                            <button class="btn-primary" style="font-size:12px; padding:4px 10px;"
-                                    x-on:click="correctProductField(ex)">Corrigir</button>
+                          <div style="display:flex; flex-direction:column; gap:6px; margin-top:6px;">
+                            <div style="display:flex; gap:6px;">
+                              <input type="text" x-model="correctionValue[ex.id]" placeholder="Valor correto"
+                                     style="font-size:12px; padding:4px 8px;">
+                              <button class="btn-primary" style="font-size:12px; padding:4px 10px;"
+                                      x-on:click="correctProductField(ex)">Corrigir</button>
+                              <button class="btn-ghost" style="font-size:12px; padding:4px 10px;"
+                                      x-show="CORRECTABLE_FIELDS[ex.reason_code] === 'ncm'"
+                                      x-on:click="suggestNcm(ex)" :disabled="suggestingNcm === ex.id">
+                                <i data-lucide="sparkles" style="width:12px;height:12px;"></i>
+                                <span x-text="suggestingNcm === ex.id ? 'Pensando...' : 'Sugerir com IA'"></span>
+                              </button>
+                            </div>
+                            <p x-show="ncmSuggestionNote[ex.id]" style="font-size:11.5px; color:var(--texto-secundario); margin:0;"
+                               x-text="ncmSuggestionNote[ex.id]"></p>
                           </div>
                         </template>
                       </div>
@@ -812,6 +822,8 @@ function app() {
     exceptionsSummary: [],
     exceptionsViewMode: 'grouped',
     correctionValue: {},
+    suggestingNcm: null,
+    ncmSuggestionNote: {},
 
     teamUsers: [],
     newUserForm: { name: '', email: '', password: '', role: 'analista', manager_email: '' },
@@ -1189,6 +1201,28 @@ function app() {
         self.toast(decision === 'APPROVED' ? 'Excecao aprovada.' : 'Excecao rejeitada.');
         return Promise.all([self.loadExceptions(), self.loadExceptionsSummary(),
                              self.loadReadiness(), self.loadReport(), self.loadBatches()]);
+      });
+    },
+
+    suggestNcm: function(ex) {
+      var self = this;
+      this.suggestingNcm = ex.id;
+      this.ncmSuggestionNote[ex.id] = '';
+      return API.request('/imports/' + this.currentBatch.id + '/products/' + ex.record_id + '/suggest-ncm', {
+        method: 'POST', token: this.token,
+      }).then(function(resp) {
+        self.suggestingNcm = null;
+        return resp.json().then(function(data) {
+          if (data.ncm) {
+            self.correctionValue[ex.id] = data.ncm;
+            self.ncmSuggestionNote[ex.id] = 'IA sugere ' + data.ncm + ': ' + data.justificativa;
+          } else {
+            self.ncmSuggestionNote[ex.id] = 'IA não conseguiu sugerir: ' + (data.justificativa || 'sem detalhe');
+          }
+        });
+      }).catch(function(e) {
+        self.suggestingNcm = null;
+        self.ncmSuggestionNote[ex.id] = 'Sugestão indisponível agora (' + e.message + ').';
       });
     },
 
